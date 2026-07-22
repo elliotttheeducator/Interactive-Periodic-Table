@@ -176,71 +176,171 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 const bohrSvg = document.getElementById('bohr-svg');
 const VIEW = 440;
 const CENTER = VIEW / 2;
+const NUCLEUS_K = 8.6; // nucleusRadius = NUCLEUS_K * cbrt(nucleon count), echoing the real R ~ A^(1/3) nuclear radius law
+const RING_GAP = 34;
+const BLOB_THRESHOLD = 44; // above this many nucleons, switch to a labeled blob instead of individual dots
+
+let atomGroup = null;    // persistent <g>, scaled to reflect relative atomic radius
+let nucleusGroup = null; // persistent <g> holding nucleon dots or the large-atom blob
+let nucleusMode = null;  // 'dots' | 'blob'
+let shellStates = [];    // per shell index: { ringEl, groupEl } | null
+
+function svgEl(tag, attrs = {}) {
+  const el = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  return el;
+}
+
+function ensureSkeleton() {
+  if (atomGroup) return;
+  atomGroup = svgEl('g', { class: 'atom-scale' });
+  nucleusGroup = svgEl('g', { class: 'nucleus-group' });
+  atomGroup.appendChild(nucleusGroup);
+  bohrSvg.appendChild(atomGroup);
+}
+
+// Smoothly reconciles the circles in `container` matching `filterClass` with `positions`:
+// existing ones transition to their new spot, extras fade out, missing ones fade in.
+function syncCircles(container, filterClass, positions, r, createClass) {
+  createClass = createClass || filterClass;
+  let els = Array.from(container.children).filter(el => el.classList.contains(filterClass));
+  while (els.length > positions.length) {
+    const el = els.pop();
+    el.style.opacity = '0';
+    el.style.r = '0px';
+    setTimeout(() => el.remove(), 500);
+  }
+  els.forEach((el, i) => {
+    el.style.cx = `${positions[i].x}px`;
+    el.style.cy = `${positions[i].y}px`;
+  });
+  for (let i = els.length; i < positions.length; i++) {
+    const el = svgEl('circle', { class: createClass, r: 0 });
+    el.style.cx = `${positions[i].x}px`;
+    el.style.cy = `${positions[i].y}px`;
+    el.style.r = '0px';
+    el.style.opacity = '0';
+    el.style.animationDelay = `${(-Math.random() * 3).toFixed(2)}s`;
+    container.appendChild(el);
+    void el.getBoundingClientRect(); // force layout flush so the 0-state actually paints first
+    el.style.r = `${r}px`;
+    el.style.opacity = '1';
+    els.push(el);
+  }
+  return els;
+}
 
 function spiralPoints(n, maxRadius) {
   const pts = [];
   const golden = Math.PI * (3 - Math.sqrt(5));
   for (let i = 0; i < n; i++) {
-    const r = maxRadius * Math.sqrt((i + 0.5) / n);
+    const rr = maxRadius * Math.sqrt((i + 0.5) / n);
     const theta = i * golden;
-    pts.push([CENTER + r * Math.cos(theta), CENTER + r * Math.sin(theta)]);
+    pts.push({ x: CENTER + rr * Math.cos(theta), y: CENTER + rr * Math.sin(theta) });
   }
   return pts;
 }
 
-function renderBohr(z) {
-  const e = ELEMENTS_BY_Z[z];
-  const shells = shellConfig(z);
-  const protons = e.z;
-  const neutrons = parseMassNumber(e.mass) - protons;
+function renderNucleus(protons, neutrons) {
   const total = protons + neutrons;
+  const nucleusRadius = NUCLEUS_K * Math.cbrt(Math.max(total, 1));
 
-  let html = '';
-
-  // Nucleus
-  const nucleusRadius = 26;
-  if (total <= 40) {
+  if (total <= BLOB_THRESHOLD) {
+    if (nucleusMode !== 'dots') {
+      nucleusGroup.innerHTML = '';
+      nucleusMode = 'dots';
+    }
     const order = [];
     let pCount = 0, nCount = 0;
     while (pCount < protons || nCount < neutrons) {
       if (pCount / Math.max(protons, 1) <= nCount / Math.max(neutrons, 1) && pCount < protons) {
-        order.push('p'); pCount++;
+        order.push('proton'); pCount++;
       } else if (nCount < neutrons) {
-        order.push('n'); nCount++;
+        order.push('neutron'); nCount++;
       } else if (pCount < protons) {
-        order.push('p'); pCount++;
+        order.push('proton'); pCount++;
       }
     }
     const pts = spiralPoints(order.length, nucleusRadius);
-    order.forEach((kind, i) => {
-      const [x, y] = pts[i];
-      html += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4.2" class="nucleon ${kind === 'p' ? 'proton' : 'neutron'}" data-kind="${kind}"></circle>`;
-    });
+    const protonPts = pts.filter((_, i) => order[i] === 'proton');
+    const neutronPts = pts.filter((_, i) => order[i] === 'neutron');
+    syncCircles(nucleusGroup, 'proton', protonPts, 4.2, 'nucleon proton');
+    syncCircles(nucleusGroup, 'neutron', neutronPts, 4.2, 'nucleon neutron');
   } else {
-    const r = Math.min(40, nucleusRadius + Math.sqrt(total) * 0.6);
-    html += `<circle cx="${CENTER}" cy="${CENTER}" r="${r}" class="nucleus-blob"></circle>`;
-    html += `<text x="${CENTER}" y="${CENTER - 4}" class="nucleus-label proton">${protons}p</text>`;
-    html += `<text x="${CENTER}" y="${CENTER + 12}" class="nucleus-label neutron">${neutrons}n</text>`;
+    if (nucleusMode !== 'blob') {
+      nucleusGroup.innerHTML = '';
+      nucleusGroup.appendChild(svgEl('circle', { class: 'nucleus-blob', cx: CENTER, cy: CENTER, r: 0 }));
+      nucleusGroup.appendChild(svgEl('text', { class: 'nucleus-label proton', x: CENTER, y: CENTER - 4 }));
+      nucleusGroup.appendChild(svgEl('text', { class: 'nucleus-label neutron', x: CENTER, y: CENTER + 12 }));
+      nucleusMode = 'blob';
+    }
+    const r = Math.min(46, nucleusRadius);
+    nucleusGroup.querySelector('.nucleus-blob').setAttribute('r', r);
+    nucleusGroup.querySelector('.nucleus-label.proton').textContent = `${protons}p`;
+    nucleusGroup.querySelector('.nucleus-label.neutron').textContent = `${neutrons}n`;
   }
 
-  // Shells + electrons
-  const ringGap = 34;
-  shells.forEach((count, i) => {
-    const radius = nucleusRadius + ringGap * (i + 1.6);
-    html += `<circle cx="${CENTER}" cy="${CENTER}" r="${radius}" class="shell-ring" data-shell="${i + 1}"></circle>`;
-    let dots = '';
+  return nucleusRadius;
+}
+
+function renderShells(shells, nucleusRadius) {
+  const rows = Math.max(shells.length, shellStates.length);
+  for (let i = 0; i < rows; i++) {
+    const count = shells[i] || 0;
+    const existing = shellStates[i];
+
+    if (count === 0) {
+      if (existing) {
+        existing.ringEl.style.opacity = '0';
+        existing.groupEl.style.opacity = '0';
+        setTimeout(() => { existing.ringEl.remove(); existing.groupEl.remove(); }, 500);
+        shellStates[i] = null;
+      }
+      continue;
+    }
+
+    const radius = nucleusRadius + RING_GAP * (i + 1.6);
+
+    if (!existing) {
+      const ringEl = svgEl('circle', { class: 'shell-ring', cx: CENTER, cy: CENTER, r: 0, 'data-shell': i + 1 });
+      ringEl.style.opacity = '0';
+      const groupEl = svgEl('g', { class: 'electron-group' });
+      groupEl.style.transformOrigin = `${CENTER}px ${CENTER}px`;
+      groupEl.style.animationDuration = `${(10 + i * 4).toFixed(1)}s`;
+      groupEl.style.animationDirection = i % 2 === 0 ? 'normal' : 'reverse';
+      groupEl.style.opacity = '0';
+      atomGroup.appendChild(ringEl);
+      atomGroup.appendChild(groupEl);
+      void ringEl.getBoundingClientRect();
+      ringEl.style.opacity = '1';
+      ringEl.setAttribute('r', radius);
+      groupEl.style.opacity = '1';
+      shellStates[i] = { ringEl, groupEl };
+    } else {
+      existing.ringEl.setAttribute('r', radius);
+    }
+
+    const electronPositions = [];
     for (let k = 0; k < count; k++) {
       const angle = (2 * Math.PI * k) / count;
-      const x = (CENTER + radius * Math.cos(angle)).toFixed(1);
-      const y = (CENTER + radius * Math.sin(angle)).toFixed(1);
-      dots += `<circle cx="${x}" cy="${y}" r="4.6" class="electron" data-shell="${i + 1}"></circle>`;
+      electronPositions.push({ x: CENTER + radius * Math.cos(angle), y: CENTER + radius * Math.sin(angle) });
     }
-    const dur = (10 + i * 4).toFixed(1);
-    const dir = i % 2 === 0 ? 1 : -1;
-    html += `<g class="electron-group" style="transform-origin:${CENTER}px ${CENTER}px; animation-duration:${dur}s; animation-direction:${dir === 1 ? 'normal' : 'reverse'}">${dots}</g>`;
-  });
+    syncCircles(shellStates[i].groupEl, 'electron', electronPositions, 4.6);
+  }
+  shellStates.length = shells.length;
+}
 
-  bohrSvg.innerHTML = html;
+function renderBohr(z) {
+  ensureSkeleton();
+  const e = ELEMENTS_BY_Z[z];
+  const shells = shellConfig(z);
+  const protons = e.z;
+  const neutrons = parseMassNumber(e.mass) - protons;
+
+  const nucleusRadius = renderNucleus(protons, neutrons);
+  renderShells(shells, nucleusRadius);
+
+  atomGroup.style.transform = `scale(${atomicRadiusScale(z)})`;
 }
 
 // ---------- Subshell panel ----------
@@ -327,13 +427,17 @@ function spawnComicBursts(prevZ, nextZ) {
   const dP = next.z - prev.z;
   const dN = nextNeutrons - prevNeutrons;
   const dShell = nextShells.length - prevShells.length;
-  const outerRadius = 26 + 34 * (Math.max(nextShells.length, prevShells.length) + 1.6);
+  const nextTotal = next.z + nextNeutrons;
+  const nucleusRadius = NUCLEUS_K * Math.cbrt(Math.max(nextTotal, 1));
+  const outerRadius = nucleusRadius + RING_GAP * (Math.max(nextShells.length, prevShells.length) + 1.6);
 
+  // Spawn points sit clear of the nucleus/rings themselves (upper-left / lower-right of it)
+  // so the burst text doesn't sit on top of the particles actually changing.
   const bursts = [];
-  if (dP !== 0) bursts.push([`${fmtSigned(dP)} proton${Math.abs(dP) !== 1 ? 's' : ''}!`, CENTER - 14, CENTER - 6, 'proton', 0]);
-  if (dN !== 0) bursts.push([`${fmtSigned(dN)} neutron${Math.abs(dN) !== 1 ? 's' : ''}!`, CENTER + 16, CENTER + 16, 'neutron', 180]);
-  if (dP !== 0) bursts.push([`${fmtSigned(dP)} electron${Math.abs(dP) !== 1 ? 's' : ''}!`, CENTER, CENTER - outerRadius - 6, 'electron', 380]);
-  if (dShell !== 0) bursts.push([dShell > 0 ? '+1 shell!' : '-1 shell!', CENTER, CENTER - outerRadius - 34, 'shell', 560]);
+  if (dP !== 0) bursts.push([`${fmtSigned(dP)} proton${Math.abs(dP) !== 1 ? 's' : ''}!`, CENTER - nucleusRadius - 30, CENTER - nucleusRadius - 14, 'proton', 0]);
+  if (dN !== 0) bursts.push([`${fmtSigned(dN)} neutron${Math.abs(dN) !== 1 ? 's' : ''}!`, CENTER + nucleusRadius + 30, CENTER + nucleusRadius + 20, 'neutron', 180]);
+  if (dP !== 0) bursts.push([`${fmtSigned(dP)} electron${Math.abs(dP) !== 1 ? 's' : ''}!`, CENTER, CENTER - outerRadius - 20, 'electron', 380]);
+  if (dShell !== 0) bursts.push([dShell > 0 ? '+1 shell!' : '-1 shell!', CENTER, CENTER - outerRadius - 50, 'shell', 560]);
 
   bursts.forEach(([text, x, y, kind, delay]) => {
     setTimeout(() => addComicBurstEl(text, x, y, kind), delay);
@@ -387,28 +491,25 @@ function showMoveToast(prevZ, nextZ, { axis, dir }) {
   `;
   document.body.appendChild(toast);
 
-  const startRect = document.querySelector('.bohr-panel').getBoundingClientRect();
   const endRect = document.getElementById('info-panel').getBoundingClientRect();
-  const toastWidth = 300;
+  const toastWidth = 320;
 
-  toast.style.left = `${startRect.left + startRect.width / 2 - toastWidth / 2}px`;
-  toast.style.top = `${startRect.top + startRect.height / 2 - 20}px`;
-  toast.style.opacity = '0';
-  toast.style.transform = 'scale(0.85)';
-
-  void toast.offsetWidth; // force a layout flush so the start position actually paints before animating
-
-  toast.style.transition = 'left 750ms ease, top 750ms ease, opacity 400ms ease, transform 400ms ease';
-  toast.style.opacity = '1';
-  toast.style.transform = 'scale(1)';
-  toast.style.left = `${endRect.left - toastWidth - 14}px`;
+  toast.style.left = `${endRect.left - toastWidth - 22}px`;
   toast.style.top = `${endRect.top + 4}px`;
+  toast.style.opacity = '0';
+  toast.style.transform = 'translateX(16px) scale(0.92)';
+
+  void toast.offsetWidth; // force a layout flush so the entry animates instead of snapping in
+
+  toast.style.transition = 'opacity 350ms ease, transform 350ms ease';
+  toast.style.opacity = '1';
+  toast.style.transform = 'translateX(0) scale(1)';
 
   setTimeout(() => {
     toast.style.opacity = '0';
-    toast.style.transform = 'scale(0.9)';
-    setTimeout(() => toast.remove(), 450);
-  }, 750 + 3400);
+    toast.style.transform = 'translateX(16px) scale(0.92)';
+    setTimeout(() => toast.remove(), 400);
+  }, 3800);
 }
 
 // ---------- Component popups ----------

@@ -171,6 +171,22 @@ function subshellBreakdown(z) {
   return filled;
 }
 
+// Simplified relative atomic radius using r ~ n^2 / Z_eff (Bohr-style), with Z_eff
+// approximated as nuclear charge minus inner-shell electrons. This is NOT to physical
+// scale -- it exists purely to reproduce the correct group/period size trend directionally,
+// compressed and clamped so it stays legible as a drawing at both ends of the table.
+function atomicRadiusScale(z) {
+  const shells = shellConfig(z);
+  const n = shells.length;
+  const inner = shells.slice(0, -1).reduce((a, b) => a + b, 0);
+  const zEff = Math.max(z - inner, 1);
+  const raw = Math.sqrt((n * n) / zEff);
+  const REF = Math.sqrt((3 * 3) / 4); // calibrated against Silicon (n=3, Z_eff=4)
+  const ratio = raw / REF;
+  const scale = Math.pow(ratio, 0.55);
+  return Math.min(1.85, Math.max(0.6, scale));
+}
+
 function metallicCharacter(category) {
   if (category === 'metalloid') return 'Metalloid';
   if (category === 'reactive-nonmetal' || category === 'halogen') return 'Nonmetal';
