@@ -208,3 +208,140 @@ function reactivityLabel(category) {
 }
 
 const TRANSITION_CATEGORIES = new Set(['transition-metal', 'lanthanide', 'actinide']);
+
+const METAL_CATEGORIES = new Set([
+  'alkali-metal', 'alkaline-earth-metal', 'transition-metal',
+  'post-transition-metal', 'lanthanide', 'actinide',
+]);
+function isMetalCategory(category) { return METAL_CATEGORIES.has(category); }
+
+// ---------- Reactivity prediction (donate / share / gain) ----------
+// Keyed off category first, not just raw valence count, so confidence matches reality:
+// alkali/alkaline-earth metals are near-certain donors, halogens/reactive-nonmetals with
+// 5-6 valence electrons genuinely swing between ionic and covalent depending on partner.
+function octetPrediction(z) {
+  const e = ELEMENTS_BY_Z[z];
+  const shells = shellConfig(z);
+  const outer = shells[shells.length - 1];
+  const capacity = shells.length === 1 ? 2 : 8;
+
+  if (outer === capacity) return 'Outer shell is full — very stable, unlikely to react.';
+  if (e.z === 1) return 'Likely to share its 1 electron (forms covalent bonds, e.g. H₂, H₂O) rather than losing or gaining it outright.';
+
+  switch (e.category) {
+    case 'alkali-metal':
+      return 'Almost always donates its 1 outer electron to form a +1 ion — reacts readily with most nonmetals.';
+    case 'alkaline-earth-metal':
+      return 'Almost always donates its 2 outer electrons to form a +2 ion.';
+    case 'transition-metal':
+    case 'post-transition-metal':
+    case 'lanthanide':
+    case 'actinide':
+      return 'Usually donates electrons to form a positive ion, though the exact charge can vary.';
+    case 'halogen':
+      return 'Very likely to gain 1 electron and form a -1 ion with metals, or share electrons covalently with other nonmetals.';
+    case 'metalloid':
+      return 'Tends to share electrons covalently rather than fully losing or gaining them.';
+    default: // reactive-nonmetal
+      if (outer === 4) return 'Almost always shares electrons covalently — rarely forms simple ions.';
+      if (outer >= 5) return 'Depends what it bonds with: gains electrons (ionic) with metals, or shares electrons (covalent) with other nonmetals.';
+      return 'Likely to share or donate electrons depending on what it bonds with.';
+  }
+}
+
+function bondingPartnerText(category) {
+  switch (category) {
+    case 'alkali-metal':
+    case 'alkaline-earth-metal':
+      return 'It typically reacts with nonmetals — especially halogens and oxygen — to form ionic compounds.';
+    case 'halogen':
+      return 'It typically reacts with metals to form ionic salts, or with other nonmetals to form covalent molecules.';
+    case 'metalloid':
+      return 'It typically forms covalent bonds, often with other nonmetals or metalloids.';
+    case 'transition-metal':
+    case 'post-transition-metal':
+    case 'lanthanide':
+    case 'actinide':
+      return 'It typically reacts with nonmetals, especially oxygen and halogens, to form compounds.';
+    case 'noble-gas':
+      return "It essentially doesn't react with anything under normal conditions.";
+    default: // reactive-nonmetal
+      return 'It can form both ionic compounds with metals and covalent compounds with other nonmetals.';
+  }
+}
+
+function positionReasonText(e) {
+  if (e.category === 'noble-gas') return 'Its outer shell is completely full, which is why it resists reacting at all.';
+  if (isMetalCategory(e.category)) {
+    return 'Being further down its group means its outer electron sits further from the nucleus and is held less tightly — the deeper down the table a metal sits, the more reactive it tends to be.';
+  }
+  return 'Being further right in its period means more protons are pulling on the same outer shell, attracting extra electrons more strongly.';
+}
+
+function elementWriteUp(z) {
+  const e = ELEMENTS_BY_Z[z];
+  const shells = shellConfig(z);
+  const outer = shells[shells.length - 1];
+  const meta = CATEGORY_META[e.category];
+  const metal = metallicCharacter(e.category);
+  const reactivity = reactivityLabel(e.category);
+
+  return `
+    <p><strong>${e.name} (${e.symbol})</strong> is a ${meta.label.toLowerCase()}. Its metallic character is best described as <strong>${metal.toLowerCase()}</strong>, and its overall reactivity is <strong>${reactivity.toLowerCase()}</strong>.</p>
+    <p>It has ${outer} electron${outer === 1 ? '' : 's'} in its outer shell (full configuration: ${shells.join(', ')}).</p>
+    <p>${octetPrediction(z)}</p>
+    <p>${bondingPartnerText(e.category)}</p>
+    <p>${positionReasonText(e)}</p>
+  `;
+}
+
+// ---------- Heatmap scoring + color ----------
+// 0-1 relative reactivity score, derived from category + group position (not a real
+// physical measurement) so the heatmap traces the same trend the toasts already describe:
+// alkali metals hottest toward the bottom of the group, halogens hottest toward the top,
+// noble gases at zero.
+function reactivityScore(z) {
+  const e = ELEMENTS_BY_Z[z];
+  const period = e.period || (e.category === 'lanthanide' ? 6 : 7);
+  const clamp01 = (v) => Math.min(1, Math.max(0, v));
+  switch (e.category) {
+    case 'alkali-metal': return clamp01(0.55 + 0.075 * (period - 2));
+    case 'alkaline-earth-metal': return clamp01(0.40 + 0.06 * (period - 2));
+    case 'halogen': return clamp01(0.95 - 0.08 * (period - 2));
+    case 'reactive-nonmetal': {
+      const shells = shellConfig(z);
+      const outer = shells[shells.length - 1];
+      return clamp01(0.30 + 0.06 * (outer - 1));
+    }
+    case 'metalloid': return 0.35;
+    case 'post-transition-metal': return 0.40;
+    case 'transition-metal': return 0.40;
+    case 'lanthanide': return 0.35;
+    case 'actinide': return 0.42;
+    case 'noble-gas': return 0;
+    default: return 0.3;
+  }
+}
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+function rgbCss(rgb) { return `rgb(${Math.round(rgb[0])}, ${Math.round(rgb[1])}, ${Math.round(rgb[2])})`; }
+
+// Black (inert) -> deep red -> bright orange, for the reactivity heatmap.
+function reactivityColor(score) {
+  const black = [12, 10, 8], red = [176, 30, 20], orange = [255, 145, 30];
+  if (score <= 0.5) {
+    const t = score / 0.5;
+    return rgbCss(black.map((c, i) => lerp(c, red[i], t)));
+  }
+  const t = (score - 0.5) / 0.5;
+  return rgbCss(red.map((c, i) => lerp(c, orange[i], t)));
+}
+
+// Black (no value assigned, e.g. noble gases) -> deep navy -> electric blue/cyan,
+// for the electronegativity heatmap -- a different palette from reactivity on purpose.
+function electronegColor(en) {
+  if (en === null || en === undefined) return rgbCss([12, 10, 8]);
+  const navy = [18, 26, 66], cyan = [70, 205, 255];
+  const t = Math.min(1, en / 4.0);
+  return rgbCss(navy.map((c, i) => lerp(c, cyan[i], t)));
+}

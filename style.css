@@ -197,15 +197,59 @@ body {
 .dot.electron { background: #7ec8ff; }
 .dot.shell { background: transparent; border: 1px solid var(--chalk-dim); }
 
-/* ---------- Info panel ---------- */
+/* ---------- Info panel (flip card) ---------- */
 .info-panel {
   flex: 0 0 320px;
   background: rgba(244,241,232,0.06);
   border: 1px solid rgba(244,241,232,0.25);
   border-radius: 10px;
+  position: relative;
+  --accent: #f5d7a3;
+  perspective: 1400px;
+}
+
+.flip-btn {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  z-index: 5;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.3);
+  border: 1px solid rgba(244,241,232,0.4);
+  color: var(--chalk);
+  cursor: pointer;
+  font-size: 13px;
+  font-style: italic;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.flip-btn:hover { background: rgba(244,241,232,0.2); }
+
+.info-card-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  transition: transform 600ms ease;
+}
+.info-card-inner.flipped { transform: rotateY(180deg); }
+
+.info-card-front, .info-card-back {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
   padding: 14px 16px;
   overflow-y: auto;
-  --accent: #f5d7a3;
+}
+.info-card-back { transform: rotateY(180deg); }
+
+.info-writeup p { font-size: 13px; line-height: 1.55; margin: 8px 0; }
+@media (prefers-reduced-motion: reduce) {
+  .info-card-inner { transition: none; }
 }
 
 .info-header {
@@ -313,9 +357,67 @@ body {
   opacity: 0.55;
 }
 
-.tile-z { font-size: 0.5em; align-self: flex-start; opacity: 0.75; line-height: 1; }
-.tile-symbol { font-size: 1.1em; font-weight: 700; line-height: 1.05; }
-.tile-mass { font-size: 0.42em; line-height: 1; opacity: 0.8; }
+.tile-z { font-size: 0.5em; align-self: flex-start; opacity: 0.75; line-height: 1; transition: opacity 0.2s ease; }
+.tile-symbol { font-size: 1.1em; font-weight: 700; line-height: 1.05; transition: opacity 0.2s ease; }
+.tile-mass { font-size: 0.42em; line-height: 1; opacity: 0.8; transition: opacity 0.2s ease; }
+
+/* ---------- Heatmaps ---------- */
+.heatmap-toggles {
+  position: absolute;
+  top: 0;
+  right: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  z-index: 4;
+}
+.heatmap-btn {
+  background: rgba(22,48,37,0.85);
+  border: 1px solid rgba(244,241,232,0.35);
+  color: var(--chalk);
+  border-radius: 14px;
+  padding: 4px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.heatmap-btn:hover { background: rgba(244,241,232,0.18); }
+.heatmap-btn.active {
+  background: var(--accent, #f5d7a3);
+  color: #17301f;
+  border-color: var(--accent, #f5d7a3);
+}
+
+.periodic-grid.heatmap-reactivity .tile,
+.periodic-grid.heatmap-electroneg .tile {
+  border-color: rgba(244,241,232,0.15);
+}
+.periodic-grid.heatmap-reactivity .tile { background: var(--heat-reactivity) !important; }
+.periodic-grid.heatmap-electroneg .tile { background: var(--heat-electroneg) !important; }
+.periodic-grid.heatmap-reactivity .tile-z,
+.periodic-grid.heatmap-reactivity .tile-symbol,
+.periodic-grid.heatmap-reactivity .tile-mass,
+.periodic-grid.heatmap-electroneg .tile-z,
+.periodic-grid.heatmap-electroneg .tile-symbol,
+.periodic-grid.heatmap-electroneg .tile-mass {
+  opacity: 0;
+}
+
+.heatmap-caption {
+  position: fixed;
+  left: 50%;
+  top: calc(60% + 10px);
+  transform: translateX(-50%);
+  z-index: 65;
+  width: 340px;
+  background: rgba(18,40,30,0.98);
+  border: 1px solid rgba(244,241,232,0.45);
+  border-radius: 10px;
+  padding: 12px 18px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.45);
+  text-align: center;
+}
 
 /* ---------- D-pad ---------- */
 .dpad {

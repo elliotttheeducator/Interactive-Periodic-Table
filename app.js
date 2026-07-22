@@ -103,6 +103,8 @@ function makeTile(e, row, col) {
   btn.style.gridRow = row;
   btn.style.gridColumn = col;
   btn.style.setProperty('--tile-color', CATEGORY_META[e.category].color);
+  btn.style.setProperty('--heat-reactivity', reactivityColor(reactivityScore(e.z)));
+  btn.style.setProperty('--heat-electroneg', electronegColor(e.en));
   btn.innerHTML = `
     <span class="tile-z">${e.z}</span>
     <span class="tile-symbol">${e.symbol}</span>
@@ -145,14 +147,15 @@ function goTo(nextZ, moveInfo) {
   if (moveInfo) showMoveToast(prevZ, nextZ, moveInfo);
 }
 
-// ---------- Info panel ----------
+// ---------- Info panel (flip card: quick facts <-> write-up) ----------
 function renderInfoPanel(z) {
   const e = ELEMENTS_BY_Z[z];
   const shells = shellConfig(z);
   const meta = CATEGORY_META[e.category];
   const panel = document.getElementById('info-panel');
   panel.style.setProperty('--accent', meta.color);
-  panel.innerHTML = `
+
+  document.getElementById('info-card-front').innerHTML = `
     <div class="info-header">
       <div class="info-symbol">${e.symbol}</div>
       <div class="info-titles">
@@ -168,6 +171,17 @@ function renderInfoPanel(z) {
       <div><dt>Reactivity</dt><dd>${reactivityLabel(e.category)}</dd></div>
       <div><dt>Electronegativity</dt><dd>${e.en !== null ? e.en.toFixed(2) : '—'}</dd></div>
     </dl>
+  `;
+
+  document.getElementById('info-card-back').innerHTML = `
+    <div class="info-header">
+      <div class="info-symbol">${e.symbol}</div>
+      <div class="info-titles">
+        <div class="info-name">${e.name}</div>
+        <div class="info-category">About this element</div>
+      </div>
+    </div>
+    <div class="info-writeup">${elementWriteUp(z)}</div>
   `;
 }
 
@@ -391,21 +405,6 @@ document.addEventListener('keydown', (ev) => {
   }
 });
 
-// ---------- Reactivity / octet prediction ----------
-function octetPrediction(z) {
-  const shells = shellConfig(z);
-  const outer = shells[shells.length - 1];
-  if (shells.length === 1) {
-    return outer >= 2
-      ? 'Outer shell is full — very stable, unlikely to react.'
-      : 'Likely to share its electron (e.g. forming covalent bonds).';
-  }
-  if (outer === 8) return 'Outer shell is full — very stable, unlikely to react.';
-  if (outer <= 3) return 'Likely to donate electrons to reach a stable outer shell (octet).';
-  if (outer === 4) return 'Likely to share electrons (covalent bonding) to reach a stable outer shell.';
-  return 'Likely to gain (steal) electrons to complete its outer shell (octet).';
-}
-
 // ---------- Comic-style change bursts (on the Bohr diagram) ----------
 const fmtSigned = (n) => (n > 0 ? `+${n}` : `${n}`);
 
@@ -605,6 +604,56 @@ tmToggle.addEventListener('change', () => {
   updateDpad();
 });
 
+// ---------- Info panel flip (facts <-> write-up) ----------
+const flipBtn = document.getElementById('flip-btn');
+const infoCardInner = document.getElementById('info-card-inner');
+let infoFlipped = false;
+flipBtn.addEventListener('click', () => {
+  infoFlipped = !infoFlipped;
+  infoCardInner.classList.toggle('flipped', infoFlipped);
+  flipBtn.textContent = infoFlipped ? '✕' : 'i';
+  flipBtn.setAttribute('aria-label', infoFlipped ? 'Back to quick facts' : 'Show element write-up');
+});
+
+// ---------- Heatmaps ----------
+const HEATMAP_INFO = {
+  reactivity: {
+    title: 'Reactivity heatmap',
+    body: 'Brighter/hotter = more reactive. The most reactive metals (bottom-left) and nonmetals (top-right, excluding noble gases) glow hottest; noble gases stay black -- they barely react at all.',
+  },
+  electroneg: {
+    title: 'Electronegativity heatmap',
+    body: 'Brighter blue = pulls harder on shared electrons. A big gap between two bonded atoms tends to form an ionic bond; a small gap tends to form a covalent one. No assigned value shows as black.',
+  },
+};
+
+let activeHeatmap = null; // 'reactivity' | 'electroneg' | null
+const heatReactivityBtn = document.getElementById('heat-reactivity-btn');
+const heatElectronegBtn = document.getElementById('heat-electroneg-btn');
+const heatmapCaption = document.getElementById('heatmap-caption');
+
+function setHeatmap(mode) {
+  gridEl.classList.remove('heatmap-reactivity', 'heatmap-electroneg');
+  heatReactivityBtn.classList.remove('active');
+  heatElectronegBtn.classList.remove('active');
+
+  if (activeHeatmap === mode) {
+    activeHeatmap = null;
+    heatmapCaption.classList.add('hidden');
+    return;
+  }
+
+  activeHeatmap = mode;
+  gridEl.classList.add(mode === 'reactivity' ? 'heatmap-reactivity' : 'heatmap-electroneg');
+  (mode === 'reactivity' ? heatReactivityBtn : heatElectronegBtn).classList.add('active');
+  const info = HEATMAP_INFO[mode];
+  heatmapCaption.innerHTML = `<div class="tour-title">${info.title}</div><div class="tour-body">${info.body}</div>`;
+  heatmapCaption.classList.remove('hidden');
+}
+
+heatReactivityBtn.addEventListener('click', () => setHeatmap('reactivity'));
+heatElectronegBtn.addEventListener('click', () => setHeatmap('electroneg'));
+
 // ---------- Guided tour ----------
 const TOUR_STEPS = [
   { selector: '.bohr-panel', title: 'The Bohr model', body: 'This updates live as you move between elements — watch protons, neutrons, electrons and shells change in real time.' },
@@ -614,7 +663,9 @@ const TOUR_STEPS = [
     beforeShow: () => { if (!state.transitionMetalsOn) { tmToggle.checked = true; tmToggle.dispatchEvent(new Event('change')); } },
   },
   { selector: '#info-panel', title: 'Element facts', body: 'Category, mass number, electron shells, metallic character, reactivity and electronegativity for the current element.' },
+  { selector: '#flip-btn', title: 'Flip for a write-up', body: 'Click this to flip the card over and read a short write-up on how reactive this element is, why, and what it typically bonds with.' },
   { selector: '#periodic-grid', title: 'The periodic table', body: 'Color-coded by category, matching the legend above. Click any active tile to jump straight to it.' },
+  { selector: '.heatmap-toggles', title: 'Heatmaps', body: 'Toggle these to recolor the whole table by reactivity or electronegativity instead of category, to see those trends at a glance.' },
   { selector: '#dpad', title: 'Move the atom', body: "Use these arrows — or your keyboard's arrow keys — to move across a period or down a group." },
   { selector: '.bohr-panel', title: 'Watch what changes', body: 'Every move pops a quick burst on the diagram for what changed, then a fuller card appears beside the atom explaining the trend and predicting reactivity.' },
   { selector: '.tm-toggle', title: 'Transition metals', body: 'Toggle this to unlock the full 118-element table — transition metals, lanthanides and actinides — plus the subshell breakdown.' },
