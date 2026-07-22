@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Atomic Journey — Interactive Periodic Table</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+
+  <header class="top-zone">
+    <section class="bohr-panel">
+      <svg id="bohr-svg" viewBox="0 0 440 440" aria-label="Bohr model diagram"></svg>
+      <div class="legend-chips">
+        <button class="legend-chip" data-kind="proton"><span class="dot proton"></span>Proton</button>
+        <button class="legend-chip" data-kind="neutron"><span class="dot neutron"></span>Neutron</button>
+        <button class="legend-chip" data-kind="electron"><span class="dot electron"></span>Electron</button>
+        <button class="legend-chip" data-kind="shell"><span class="dot shell"></span>Shell</button>
+      </div>
+    </section>
+
+    <aside class="info-panel" id="info-panel"></aside>
+  </header>
+
+  <main class="bottom-zone">
+    <div class="table-toolbar">
+      <label class="tm-toggle">
+        <input type="checkbox" id="tm-toggle">
+        Show transition metals
+      </label>
+      <div class="category-legend">
+        <span><i style="background:#f5d7a3"></i>Alkali</span>
+        <span><i style="background:#f2a53e"></i>Alkaline-earth</span>
+        <span><i style="background:#c9c6ea"></i>Transition</span>
+        <span><i style="background:#f7c6ce"></i>Other metal</span>
+        <span><i style="background:#e8b98f"></i>Metalloid</span>
+        <span><i style="background:#f08767"></i>Nonmetal</span>
+        <span><i style="background:#8fbc8f"></i>Halogen</span>
+        <span><i style="background:#ffffff;border:1px solid #1e3a8a"></i>Noble gas</span>
+        <span><i style="background:#d9db84"></i>Lanthanide</span>
+        <span><i style="background:#a8d5e8"></i>Actinide</span>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <div class="periodic-grid" id="periodic-grid"></div>
+
+      <div class="dpad" id="dpad">
+        <button data-dir="up" aria-label="Move up a group">&#8593;</button>
+        <button data-dir="left" aria-label="Move left across a period">&#8592;</button>
+        <div class="dpad-center" id="dpad-current">Si</div>
+        <button data-dir="right" aria-label="Move right across a period">&#8594;</button>
+        <button data-dir="down" aria-label="Move down a group">&#8595;</button>
+      </div>
+    </div>
+  </main>
+
+</div>
+
+<div id="toast-container"></div>
+<div id="popup" class="popup hidden"></div>
+
+<script src="elements.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
