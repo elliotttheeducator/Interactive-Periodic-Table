@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Notes — Periodic Trends</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  html, body { overflow-y: auto; height: auto; min-height: 100%; }
+  .notes-wrap {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 32px 24px 80px;
+  }
+  .notes-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--chalk-dim);
+    text-decoration: none;
+    font-size: 13px;
+    margin-bottom: 18px;
+  }
+  .notes-back:hover { color: var(--chalk); }
+  h1.notes-title {
+    font-size: 30px;
+    margin: 0 0 4px;
+    border-bottom: 3px dashed rgba(244,241,232,0.25);
+    padding-bottom: 14px;
+  }
+  .notes-subtitle { color: var(--chalk-dim); margin: 0 0 28px; font-size: 14px; }
+  .notes-section {
+    background: rgba(244,241,232,0.05);
+    border: 1px solid rgba(244,241,232,0.18);
+    border-radius: 10px;
+    padding: 18px 22px;
+    margin-bottom: 18px;
+  }
+  .notes-section h2 {
+    margin-top: 0;
+    font-size: 19px;
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .notes-section h2 .num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px; height: 24px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #17301f;
+    font-size: 13px;
+    font-weight: 800;
+  }
+  .notes-section h3 { font-size: 14.5px; margin: 14px 0 4px; color: var(--chalk); }
+  .notes-section p { line-height: 1.55; font-size: 14px; margin: 6px 0; }
+  .notes-section ul { margin: 6px 0; padding-left: 22px; font-size: 14px; line-height: 1.6; }
+  .notes-section li { margin-bottom: 3px; }
+  .key-term { color: var(--accent); font-weight: 700; }
+  .example-box {
+    background: rgba(0,0,0,0.2);
+    border-left: 3px solid var(--accent);
+    border-radius: 4px;
+    padding: 8px 14px;
+    margin: 10px 0;
+    font-size: 13.5px;
+  }
+  .legend-table {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 8px;
+    margin: 10px 0;
+  }
+  .legend-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+  }
+  .legend-swatch { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
+  .shell-config { font-family: monospace; background: rgba(0,0,0,0.25); padding: 1px 6px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div class="notes-wrap">
+  <a class="notes-back" href="index.html">&larr; Back to the app</a>
+  <h1 class="notes-title">Periodic Trends — Notes</h1>
+  <p class="notes-subtitle">Year 10 Chemistry — covers what the interactive app shows you directly. Use it alongside the app, not instead of it.</p>
+
+  <div class="notes-section">
+    <h2><span class="num">1</span>Subatomic particles</h2>
+    <p>Every atom is built from three particles:</p>
+    <ul>
+      <li><span class="key-term">Proton</span> — positively charged, found in the nucleus. The number of protons <em>is</em> the atomic number, and it's what makes an element that element.</li>
+      <li><span class="key-term">Neutron</span> — no charge, also in the nucleus, adds mass. Atoms of the same element can have different neutron counts — these are called <span class="key-term">isotopes</span>.</li>
+      <li><span class="key-term">Electron</span> — negatively charged, found in shells around the nucleus. The outermost ("valence") electrons are what drive an atom's chemistry.</li>
+    </ul>
+    <p>An atom is neutral overall, so the number of electrons always equals the number of protons — unless it's become an ion (more on that elsewhere).</p>
+  </div>
+
+  <div class="notes-section">
+    <h2><span class="num">2</span>How the periodic table is organised</h2>
+    <p>Elements are arranged so that similar elements line up in columns. Metals sit on the left and middle of the table, nonmetals sit on the right, and metalloids form a staircase boundary between them.</p>
+    <div class="legend-table">
+      <div class="legend-row"><span class="legend-swatch" style="background:#f5d7a3"></span>Alkali metals</div>
+      <div class="legend-row"><span class="legend-swatch" style="background:#f2a53e"></span>Alkaline-earth metals</div>
+      <div class="legend-row"><span class="legend-swatch" style="background:#c9c6ea"></span>Transition metals</div>
+      <div class="legend-row"><span class="legend-swatch" style="background:#f7c6ce"></span>Other metals</div>
+      <div class="legend-row"><span class="legend-swatch" style="background:#e8b98f"></span>Metalloids</div>
+      <div class="legend-row"><span class="legend-swatch" style="background:#f08767"></span>Reactive nonmetals</div>
+      <div class="legend-row"><span class="legend-swatch" style="background:#8fbc8f"></span>Halogens</div>
+      <div class="legend-row"><span class="legend-swatch" style="background:#ffffff;border:1px solid #556"></span>Noble gases</div>
+      <div class="legend-row"><span class="legend-swatch" style="background:#d9db84"></span>Lanthanides</div>
+      <div class="legend-row"><span class="legend-swatch" style="background:#a8d5e8"></span>Actinides</div>
+    </div>
+    <p><strong>Metal properties:</strong> shiny, malleable (bendable), good conductors of heat/electricity, tend to lose electrons.<br>
+    <strong>Nonmetal properties:</strong> dull, brittle if solid, poor conductors, tend to gain electrons.<br>
+    <strong>Metalloid properties:</strong> in between — often semiconductors (e.g. silicon).</p>
+  </div>
+
+  <div class="notes-section">
+    <h2><span class="num">3</span>Periods and groups</h2>
+    <p>A <span class="key-term">period</span> is a horizontal row. A <span class="key-term">group</span> is a vertical column. Moving across a period keeps the same number of shells; moving down a group adds a shell.</p>
+    <h3>Key groups to know</h3>
+    <ul>
+      <li><span class="key-term">Group 1 — Alkali metals</span> (Li, Na, K, Rb, Cs, Fr): 1 valence electron, extremely reactive, reactivity <em>increases</em> down the group.</li>
+      <li><span class="key-term">Group 2 — Alkaline-earth metals</span> (Be, Mg, Ca, Sr, Ba, Ra): 2 valence electrons, reactive but less so than Group 1.</li>
+      <li><span class="key-term">Group 17 — Halogens</span> (F, Cl, Br, I, At): 7 valence electrons, very reactive nonmetals, reactivity <em>decreases</em> down the group.</li>
+      <li><span class="key-term">Group 18 — Noble gases</span> (He, Ne, Ar, Kr, Xe, Rn): full outer shell, essentially unreactive.</li>
+    </ul>
+  </div>
+
+  <div class="notes-section">
+    <h2><span class="num">4</span>Why elements in a group behave alike</h2>
+    <p>Elements in the same group have the <span class="key-term">same number of valence electrons</span>, and chemical behaviour is driven almost entirely by valence electrons. That's why all the halogens react in similar ways, all the noble gases are unreactive, and so on — it's not a coincidence, it's the shared outer-shell count.</p>
+  </div>
+
+  <div class="notes-section">
+    <h2><span class="num">5</span>Atomic radius trends</h2>
+    <p><strong>Down a group:</strong> atomic radius <span class="key-term">increases</span>. Each row down adds a whole new shell, and each shell sits further from the nucleus than the last — so the atom gets bigger, even though the nuclear charge is also increasing.</p>
+    <p><strong>Across a period:</strong> atomic radius <span class="key-term">decreases</span>. The number of shells stays the same, but protons are being added to the nucleus every step, so the nuclear charge pulls all the electrons — including the outer ones — in more tightly.</p>
+    <div class="example-box">In the app: watch the atom itself visibly grow or shrink as you move. That resize isn't just decorative — it's modelling this exact trend.</div>
+  </div>
+
+  <div class="notes-section">
+    <h2><span class="num">6</span>Reading shells and valence electrons from the table</h2>
+    <p>For main-group elements, the <span class="key-term">period number tells you how many shells</span> the atom has, and the <span class="key-term">group number tells you the valence electron count</span> (for groups 1–2, it's the group number; for groups 13–18, it's the group number minus 10).</p>
+    <div class="example-box">Chlorine is period 3, group 17 → 3 shells, 7 valence electrons → shell configuration <span class="shell-config">2, 8, 7</span>.</div>
+  </div>
+
+  <div class="notes-section">
+    <h2><span class="num">7</span>Stability and the octet rule</h2>
+    <p>An atom is considered <span class="key-term">stable</span> when its outer (valence) shell is full — 8 electrons for most atoms (2 for a first-shell-only atom like helium). Full outer shell means very low reactivity, which is exactly why noble gases barely react with anything.</p>
+    <p>Atoms with an outer shell that's <em>nearly</em> full or <em>nearly</em> empty are the most reactive, because they only need to lose or gain a small number of electrons to reach that stable full-shell state.</p>
+  </div>
+
+  <div class="notes-section">
+    <h2><span class="num">8</span>Drawing a Bohr model</h2>
+    <p>A Bohr diagram shows the nucleus (protons + neutrons) at the centre, surrounded by concentric shells, each holding electrons up to its capacity (2 in the first shell, 8 in the next few). To draw one:</p>
+    <ul>
+      <li>Find the atomic number → that's your proton count and electron count.</li>
+      <li>Find the mass number − atomic number → that's your neutron count.</li>
+      <li>Fill shells from the inside out, 2 then 8 then 8 (for the elements you'll typically be asked to draw).</li>
+    </ul>
+  </div>
+
+  <div class="notes-section">
+    <h2><span class="num">9</span>Reactivity and the bottom-left of the table</h2>
+    <p>The most reactive metals are found in the <span class="key-term">bottom-left</span> of the periodic table (think francium, caesium). Two trends stack on top of each other here: being further down a group means the valence electron is further from the nucleus (weaker attraction, easier to remove), and being in Group 1 means there's only one valence electron to begin with. Combine those and you get the most reactive metals on the whole table.</p>
+  </div>
+
+</div>
+</body>
+</html>

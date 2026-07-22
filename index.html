@@ -61,6 +61,21 @@
 
 <div id="popup" class="popup hidden"></div>
 
+<a id="notes-btn" class="corner-btn notes-btn" href="notes.html" aria-label="Open notes page">Notes</a>
+<button id="tour-btn" class="corner-btn tour-btn" aria-label="Take the tour">?</button>
+
+<div id="tour-blocker" class="tour-blocker hidden"></div>
+<div id="tour-highlight" class="tour-highlight hidden"></div>
+<div id="tour-caption" class="tour-caption hidden">
+  <div class="tour-title" id="tour-title"></div>
+  <div class="tour-body" id="tour-body"></div>
+  <div class="tour-controls">
+    <button id="tour-skip">Skip</button>
+    <span class="tour-progress" id="tour-progress"></span>
+    <button id="tour-next">Next</button>
+  </div>
+</div>
+
 <script src="elements.js"></script>
 <script src="app.js"></script>
 </body>

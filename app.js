@@ -444,7 +444,37 @@ function spawnComicBursts(prevZ, nextZ) {
   });
 }
 
-// ---------- Flying info toast (Bohr model -> info panel) ----------
+// ---------- Info toast (persists beside the atom until the next move) ----------
+let activeToast = null;
+
+// Where the atom's outer shell currently sits on screen, so the toast can dock just
+// outside it -- for bigger (scaled-up) atoms that's further out, matching their real size.
+function atomOuterEdgePx(z) {
+  const svgRect = bohrSvg.getBoundingClientRect();
+  const e = ELEMENTS_BY_Z[z];
+  const shells = shellConfig(z);
+  const total = e.z + (parseMassNumber(e.mass) - e.z);
+  const nucleusRadius = NUCLEUS_K * Math.cbrt(Math.max(total, 1));
+  const outerRadiusUnits = nucleusRadius + RING_GAP * (shells.length - 1 + 1.6);
+  const pxPerUnit = svgRect.width / VIEW;
+  const outerRadiusPx = outerRadiusUnits * atomicRadiusScale(z) * pxPerUnit;
+  return {
+    centerX: svgRect.left + svgRect.width / 2,
+    centerY: svgRect.top + svgRect.height / 2,
+    outerRadiusPx,
+  };
+}
+
+function positionToastBesideAtom(toast, z) {
+  const { centerX, centerY, outerRadiusPx } = atomOuterEdgePx(z);
+  const toastWidth = 320;
+  const gap = 18;
+  const left = Math.max(16, centerX - outerRadiusPx - gap - toastWidth);
+  const top = Math.max(16, Math.min(centerY - toast.offsetHeight / 2, window.innerHeight - toast.offsetHeight - 16));
+  toast.style.left = `${left}px`;
+  toast.style.top = `${top}px`;
+}
+
 function showMoveToast(prevZ, nextZ, { axis, dir }) {
   spawnComicBursts(prevZ, nextZ);
 
@@ -480,36 +510,42 @@ function showMoveToast(prevZ, nextZ, { axis, dir }) {
     extra = `<div class="toast-extra">Crossed from ${prevMetal} → ${nextMetal} character.</div>`;
   }
 
+  if (activeToast) {
+    const stale = activeToast;
+    stale.style.transition = 'opacity 150ms ease';
+    stale.style.opacity = '0';
+    setTimeout(() => stale.remove(), 160);
+  }
+
   const toast = document.createElement('div');
   toast.className = 'toast';
   toast.innerHTML = `
-    <div class="toast-headline">${headline}: <strong>${prev.symbol} → ${next.symbol}</strong></div>
-    <div class="toast-stats">Protons ${fmtSigned(dP)} &middot; Neutrons ${fmtSigned(dN)} &middot; Electrons ${fmtSigned(dP)} &middot; Shells ${prevShells.length}→${nextShells.length}</div>
-    <div class="toast-trend">${trend}</div>
-    ${extra}
-    <div class="toast-predict">${octetPrediction(nextZ)}</div>
+    <div class="toast-section">
+      <div class="toast-label">Change</div>
+      <div class="toast-headline">${headline}: <strong>${prev.symbol} → ${next.symbol}</strong></div>
+      <div class="toast-stats">Protons ${fmtSigned(dP)} &middot; Neutrons ${fmtSigned(dN)} &middot; Electrons ${fmtSigned(dP)} &middot; Shells ${prevShells.length}→${nextShells.length}</div>
+    </div>
+    <div class="toast-section">
+      <div class="toast-label">Trend</div>
+      <div class="toast-trend">${trend}</div>
+      ${extra}
+    </div>
+    <div class="toast-section">
+      <div class="toast-label">Reactivity prediction</div>
+      <div class="toast-predict">${octetPrediction(nextZ)}</div>
+    </div>
   `;
   document.body.appendChild(toast);
+  positionToastBesideAtom(toast, nextZ);
 
-  const endRect = document.getElementById('info-panel').getBoundingClientRect();
-  const toastWidth = 320;
-
-  toast.style.left = `${endRect.left - toastWidth - 22}px`;
-  toast.style.top = `${endRect.top + 4}px`;
   toast.style.opacity = '0';
-  toast.style.transform = 'translateX(16px) scale(0.92)';
-
+  toast.style.transform = 'translateX(10px) scale(0.94)';
   void toast.offsetWidth; // force a layout flush so the entry animates instead of snapping in
-
-  toast.style.transition = 'opacity 350ms ease, transform 350ms ease';
+  toast.style.transition = 'opacity 300ms ease, transform 300ms ease';
   toast.style.opacity = '1';
   toast.style.transform = 'translateX(0) scale(1)';
 
-  setTimeout(() => {
-    toast.style.opacity = '0';
-    toast.style.transform = 'translateX(16px) scale(0.92)';
-    setTimeout(() => toast.remove(), 400);
-  }, 3800);
+  activeToast = toast;
 }
 
 // ---------- Component popups ----------
@@ -568,6 +604,81 @@ tmToggle.addEventListener('change', () => {
   refreshGrid();
   updateDpad();
 });
+
+// ---------- Guided tour ----------
+const TOUR_STEPS = [
+  { selector: '.bohr-panel', title: 'The Bohr model', body: 'This updates live as you move between elements — watch protons, neutrons, electrons and shells change in real time.' },
+  {
+    selector: '#subshell-panel', title: 'Subshells',
+    body: 'With "Show transition metals" on, this breaks the current atom down by subshell (1s, 2s, 2p...) — the order electrons actually fill in.',
+    beforeShow: () => { if (!state.transitionMetalsOn) { tmToggle.checked = true; tmToggle.dispatchEvent(new Event('change')); } },
+  },
+  { selector: '#info-panel', title: 'Element facts', body: 'Category, mass number, electron shells, metallic character, reactivity and electronegativity for the current element.' },
+  { selector: '#periodic-grid', title: 'The periodic table', body: 'Color-coded by category, matching the legend above. Click any active tile to jump straight to it.' },
+  { selector: '#dpad', title: 'Move the atom', body: "Use these arrows — or your keyboard's arrow keys — to move across a period or down a group." },
+  { selector: '.bohr-panel', title: 'Watch what changes', body: 'Every move pops a quick burst on the diagram for what changed, then a fuller card appears beside the atom explaining the trend and predicting reactivity.' },
+  { selector: '.tm-toggle', title: 'Transition metals', body: 'Toggle this to unlock the full 118-element table — transition metals, lanthanides and actinides — plus the subshell breakdown.' },
+];
+
+let tourIndex = -1;
+const tourBtn = document.getElementById('tour-btn');
+const tourBlocker = document.getElementById('tour-blocker');
+const tourHighlight = document.getElementById('tour-highlight');
+const tourCaption = document.getElementById('tour-caption');
+const tourTitleEl = document.getElementById('tour-title');
+const tourBodyEl = document.getElementById('tour-body');
+const tourProgressEl = document.getElementById('tour-progress');
+
+function startTour() {
+  tourIndex = -1;
+  tourBtn.classList.add('hidden');
+  tourBlocker.classList.remove('hidden');
+  tourHighlight.classList.remove('hidden');
+  tourCaption.classList.remove('hidden');
+  nextTourStep();
+}
+
+function endTour() {
+  tourBlocker.classList.add('hidden');
+  tourHighlight.classList.add('hidden');
+  tourCaption.classList.add('hidden');
+  tourBtn.classList.remove('hidden');
+  tourIndex = -1;
+}
+
+function nextTourStep() {
+  tourIndex++;
+  if (tourIndex >= TOUR_STEPS.length) { endTour(); return; }
+  const step = TOUR_STEPS[tourIndex];
+  if (step.beforeShow) step.beforeShow();
+  requestAnimationFrame(() => placeTourStep(step));
+}
+
+function placeTourStep(step) {
+  const target = document.querySelector(step.selector);
+  const rect = target.getBoundingClientRect();
+  const pad = 8;
+  tourHighlight.style.left = `${rect.left - pad}px`;
+  tourHighlight.style.top = `${rect.top - pad}px`;
+  tourHighlight.style.width = `${rect.width + pad * 2}px`;
+  tourHighlight.style.height = `${rect.height + pad * 2}px`;
+
+  tourTitleEl.textContent = step.title;
+  tourBodyEl.textContent = step.body;
+  tourProgressEl.textContent = `${tourIndex + 1} / ${TOUR_STEPS.length}`;
+  document.getElementById('tour-next').textContent = tourIndex === TOUR_STEPS.length - 1 ? 'Done' : 'Next';
+
+  const captionWidth = 320;
+  const left = Math.min(Math.max(rect.left, 16), window.innerWidth - captionWidth - 16);
+  let top = rect.bottom + pad + 14;
+  if (top + 170 > window.innerHeight) top = Math.max(16, rect.top - pad - 14 - 170);
+  tourCaption.style.left = `${left}px`;
+  tourCaption.style.top = `${top}px`;
+}
+
+tourBtn.addEventListener('click', startTour);
+document.getElementById('tour-skip').addEventListener('click', endTour);
+document.getElementById('tour-next').addEventListener('click', nextTourStep);
 
 // ---------- Init ----------
 buildGrid();
