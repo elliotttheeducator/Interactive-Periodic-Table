@@ -276,10 +276,35 @@ document.addEventListener('keydown', (ev) => {
   }
 });
 
-// ---------- Toasts ----------
-const toastContainer = document.getElementById('toast-container');
+// ---------- Reactivity / octet prediction ----------
+function octetPrediction(z) {
+  const shells = shellConfig(z);
+  const outer = shells[shells.length - 1];
+  if (shells.length === 1) {
+    return outer >= 2
+      ? 'Outer shell is full — very stable, unlikely to react.'
+      : 'Likely to share its electron (e.g. forming covalent bonds).';
+  }
+  if (outer === 8) return 'Outer shell is full — very stable, unlikely to react.';
+  if (outer <= 3) return 'Likely to donate electrons to reach a stable outer shell (octet).';
+  if (outer === 4) return 'Likely to share electrons (covalent bonding) to reach a stable outer shell.';
+  return 'Likely to gain (steal) electrons to complete its outer shell (octet).';
+}
 
-function showMoveToast(prevZ, nextZ, { axis, dir }) {
+// ---------- Comic-style change bursts (on the Bohr diagram) ----------
+const fmtSigned = (n) => (n > 0 ? `+${n}` : `${n}`);
+
+function addComicBurstEl(text, x, y, kind) {
+  const el = document.createElementNS(SVG_NS, 'text');
+  el.setAttribute('x', x);
+  el.setAttribute('y', y);
+  el.setAttribute('class', `comic-burst ${kind}`);
+  el.textContent = text;
+  bohrSvg.appendChild(el);
+  setTimeout(() => el.remove(), 1300);
+}
+
+function spawnComicBursts(prevZ, nextZ) {
   const prev = ELEMENTS_BY_Z[prevZ], next = ELEMENTS_BY_Z[nextZ];
   const prevShells = shellConfig(prevZ), nextShells = shellConfig(nextZ);
   const prevNeutrons = parseMassNumber(prev.mass) - prev.z;
@@ -287,6 +312,29 @@ function showMoveToast(prevZ, nextZ, { axis, dir }) {
   const dP = next.z - prev.z;
   const dN = nextNeutrons - prevNeutrons;
   const dShell = nextShells.length - prevShells.length;
+  const outerRadius = 26 + 34 * (Math.max(nextShells.length, prevShells.length) + 1.6);
+
+  const bursts = [];
+  if (dP !== 0) bursts.push([`${fmtSigned(dP)} proton${Math.abs(dP) !== 1 ? 's' : ''}!`, CENTER - 14, CENTER - 6, 'proton', 0]);
+  if (dN !== 0) bursts.push([`${fmtSigned(dN)} neutron${Math.abs(dN) !== 1 ? 's' : ''}!`, CENTER + 16, CENTER + 16, 'neutron', 180]);
+  if (dP !== 0) bursts.push([`${fmtSigned(dP)} electron${Math.abs(dP) !== 1 ? 's' : ''}!`, CENTER, CENTER - outerRadius - 6, 'electron', 380]);
+  if (dShell !== 0) bursts.push([dShell > 0 ? '+1 shell!' : '-1 shell!', CENTER, CENTER - outerRadius - 34, 'shell', 560]);
+
+  bursts.forEach(([text, x, y, kind, delay]) => {
+    setTimeout(() => addComicBurstEl(text, x, y, kind), delay);
+  });
+}
+
+// ---------- Flying info toast (Bohr model -> info panel) ----------
+function showMoveToast(prevZ, nextZ, { axis, dir }) {
+  spawnComicBursts(prevZ, nextZ);
+
+  const prev = ELEMENTS_BY_Z[prevZ], next = ELEMENTS_BY_Z[nextZ];
+  const prevShells = shellConfig(prevZ), nextShells = shellConfig(nextZ);
+  const prevNeutrons = parseMassNumber(prev.mass) - prev.z;
+  const nextNeutrons = parseMassNumber(next.mass) - next.z;
+  const dP = next.z - prev.z;
+  const dN = nextNeutrons - prevNeutrons;
 
   let headline, trend;
   if (axis === 'v') {
@@ -307,7 +355,6 @@ function showMoveToast(prevZ, nextZ, { axis, dir }) {
     }
   }
 
-  const fmt = (n) => (n > 0 ? `+${n}` : `${n}`);
   let extra = '';
   const prevMetal = metallicCharacter(prev.category), nextMetal = metallicCharacter(next.category);
   if (prevMetal !== nextMetal) {
@@ -318,16 +365,35 @@ function showMoveToast(prevZ, nextZ, { axis, dir }) {
   toast.className = 'toast';
   toast.innerHTML = `
     <div class="toast-headline">${headline}: <strong>${prev.symbol} → ${next.symbol}</strong></div>
-    <div class="toast-stats">Protons ${fmt(dP)} &middot; Neutrons ${fmt(dN)} &middot; Electrons ${fmt(dP)} &middot; Shells ${prevShells.length}→${nextShells.length}</div>
+    <div class="toast-stats">Protons ${fmtSigned(dP)} &middot; Neutrons ${fmtSigned(dN)} &middot; Electrons ${fmtSigned(dP)} &middot; Shells ${prevShells.length}→${nextShells.length}</div>
     <div class="toast-trend">${trend}</div>
     ${extra}
+    <div class="toast-predict">${octetPrediction(nextZ)}</div>
   `;
-  toastContainer.appendChild(toast);
-  requestAnimationFrame(() => toast.classList.add('show'));
+  document.body.appendChild(toast);
+
+  const startRect = document.querySelector('.bohr-panel').getBoundingClientRect();
+  const endRect = document.getElementById('info-panel').getBoundingClientRect();
+  const toastWidth = 300;
+
+  toast.style.left = `${startRect.left + startRect.width / 2 - toastWidth / 2}px`;
+  toast.style.top = `${startRect.top + startRect.height / 2 - 20}px`;
+  toast.style.opacity = '0';
+  toast.style.transform = 'scale(0.85)';
+
+  void toast.offsetWidth; // force a layout flush so the start position actually paints before animating
+
+  toast.style.transition = 'left 750ms ease, top 750ms ease, opacity 400ms ease, transform 400ms ease';
+  toast.style.opacity = '1';
+  toast.style.transform = 'scale(1)';
+  toast.style.left = `${endRect.left + 10}px`;
+  toast.style.top = `${endRect.top + 10}px`;
+
   setTimeout(() => {
-    toast.classList.remove('show');
-    setTimeout(() => toast.remove(), 300);
-  }, 4200);
+    toast.style.opacity = '0';
+    toast.style.transform = 'scale(0.9)';
+    setTimeout(() => toast.remove(), 450);
+  }, 750 + 3400);
 }
 
 // ---------- Component popups ----------
