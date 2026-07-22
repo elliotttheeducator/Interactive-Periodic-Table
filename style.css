@@ -46,7 +46,37 @@ body {
   align-items: center;
   justify-content: center;
   min-width: 0;
+  position: relative;
 }
+
+.subshell-panel {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  max-width: 190px;
+}
+
+.subshell-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #17301f;
+  white-space: nowrap;
+}
+.subshell-chip .n-count { font-weight: 700; }
+.subshell-chip.sub-s { background: #8fd4ff; }
+.subshell-chip.sub-p { background: #9fe0a8; }
+.subshell-chip.sub-d { background: #c9c6ea; }
+.subshell-chip.sub-f { background: #d9db84; }
 
 #bohr-svg {
   width: 42vh;

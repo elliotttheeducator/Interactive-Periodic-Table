@@ -158,6 +158,19 @@ function shellConfig(z) {
   return shells;
 }
 
+// Returns filled subshells in Aufbau fill order, e.g. Niobium -> [{n:1,l:'s',count:2}, ...]
+function subshellBreakdown(z) {
+  let remaining = z;
+  const filled = [];
+  for (const [n, l, cap] of SUBSHELL_ORDER) {
+    if (remaining <= 0) break;
+    const put = Math.min(cap, remaining);
+    filled.push({ n, l, count: put });
+    remaining -= put;
+  }
+  return filled;
+}
+
 function metallicCharacter(category) {
   if (category === 'metalloid') return 'Metalloid';
   if (category === 'reactive-nonmetal' || category === 'halogen') return 'Nonmetal';

@@ -140,6 +140,7 @@ function goTo(nextZ, moveInfo) {
   refreshGrid();
   renderInfoPanel(nextZ);
   renderBohr(nextZ);
+  renderSubshells(nextZ);
   updateDpad();
   if (moveInfo) showMoveToast(prevZ, nextZ, moveInfo);
 }
@@ -230,8 +231,8 @@ function renderBohr(z) {
     let dots = '';
     for (let k = 0; k < count; k++) {
       const angle = (2 * Math.PI * k) / count;
-      const x = (radius * Math.cos(angle)).toFixed(1);
-      const y = (radius * Math.sin(angle)).toFixed(1);
+      const x = (CENTER + radius * Math.cos(angle)).toFixed(1);
+      const y = (CENTER + radius * Math.sin(angle)).toFixed(1);
       dots += `<circle cx="${x}" cy="${y}" r="4.6" class="electron" data-shell="${i + 1}"></circle>`;
     }
     const dur = (10 + i * 4).toFixed(1);
@@ -240,6 +241,20 @@ function renderBohr(z) {
   });
 
   bohrSvg.innerHTML = html;
+}
+
+// ---------- Subshell panel ----------
+const subshellPanel = document.getElementById('subshell-panel');
+
+function renderSubshells(z) {
+  if (!state.transitionMetalsOn) {
+    subshellPanel.innerHTML = '';
+    return;
+  }
+  const filled = subshellBreakdown(z);
+  subshellPanel.innerHTML = filled.map(({ n, l, count }) => `
+    <div class="subshell-chip sub-${l}"><span>${n}${l}</span><span class="n-count">${count}</span></div>
+  `).join('');
 }
 
 // ---------- D-pad ----------
@@ -386,8 +401,8 @@ function showMoveToast(prevZ, nextZ, { axis, dir }) {
   toast.style.transition = 'left 750ms ease, top 750ms ease, opacity 400ms ease, transform 400ms ease';
   toast.style.opacity = '1';
   toast.style.transform = 'scale(1)';
-  toast.style.left = `${endRect.left + 10}px`;
-  toast.style.top = `${endRect.top + 10}px`;
+  toast.style.left = `${endRect.left - toastWidth - 14}px`;
+  toast.style.top = `${endRect.top + 4}px`;
 
   setTimeout(() => {
     toast.style.opacity = '0';
@@ -448,6 +463,7 @@ tmToggle.addEventListener('change', () => {
     renderInfoPanel(state.z);
     renderBohr(state.z);
   }
+  renderSubshells(state.z);
   refreshGrid();
   updateDpad();
 });
@@ -456,4 +472,5 @@ tmToggle.addEventListener('change', () => {
 buildGrid();
 renderInfoPanel(state.z);
 renderBohr(state.z);
+renderSubshells(state.z);
 updateDpad();
