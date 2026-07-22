@@ -618,12 +618,12 @@ flipBtn.addEventListener('click', () => {
 // ---------- Heatmaps ----------
 const HEATMAP_INFO = {
   reactivity: {
-    title: 'Reactivity heatmap',
-    body: 'Brighter/hotter = more reactive. The most reactive metals (bottom-left) and nonmetals (top-right, excluding noble gases) glow hottest; noble gases stay black -- they barely react at all.',
+    title: 'Reactivity',
+    body: 'Hotter = reacts more easily. Bottom-left metals and top-right nonmetals are hottest. Black noble gases barely react at all.',
   },
   electroneg: {
-    title: 'Electronegativity heatmap',
-    body: 'Brighter blue = pulls harder on shared electrons. A big gap between two bonded atoms tends to form an ionic bond; a small gap tends to form a covalent one. No assigned value shows as black.',
+    title: 'Electronegativity',
+    body: 'How much an atom "wants" electrons. Green = wants to steal and hold onto them tightly. Blue = doesn\'t mind giving its electrons away. Black = no data.',
   },
 };
 

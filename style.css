@@ -392,7 +392,7 @@ body {
 .periodic-grid.heatmap-reactivity,
 .periodic-grid.heatmap-electroneg {
   gap: 0;
-  filter: blur(4px) saturate(1.6) brightness(1.15) contrast(1.1);
+  filter: saturate(1.6) brightness(1.15) contrast(1.1);
 }
 .periodic-grid.heatmap-reactivity .tile,
 .periodic-grid.heatmap-electroneg .tile {
@@ -410,19 +410,20 @@ body {
 }
 
 .heatmap-caption {
-  position: fixed;
-  left: 50%;
-  top: calc(60% + 10px);
-  transform: translateX(-50%);
-  z-index: 65;
-  width: 340px;
+  position: absolute;
+  top: 76px;
+  right: 10px;
+  z-index: 4;
+  width: 140px;
   background: rgba(18,40,30,0.98);
   border: 1px solid rgba(244,241,232,0.45);
   border-radius: 10px;
-  padding: 12px 18px;
+  padding: 10px 12px;
   box-shadow: 0 4px 20px rgba(0,0,0,0.45);
-  text-align: center;
+  text-align: left;
 }
+.heatmap-caption .tour-title { font-size: 12.5px; margin-bottom: 4px; }
+.heatmap-caption .tour-body { font-size: 11px; line-height: 1.35; margin-bottom: 0; }
 
 /* ---------- D-pad ---------- */
 .dpad {
