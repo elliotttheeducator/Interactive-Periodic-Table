@@ -37,7 +37,9 @@ body {
   gap: 16px;
   padding: 12px 20px;
   border-bottom: 3px dashed rgba(244,241,232,0.25);
+  transition: flex-basis 500ms ease;
 }
+.app.table-expanded .top-zone { flex-basis: 30%; }
 
 .bohr-panel {
   flex: 1 1 55%;
@@ -84,7 +86,9 @@ body {
   max-width: 100%;
   flex: 0 0 auto;
   overflow: visible;
+  transition: width 500ms ease, height 500ms ease;
 }
+.app.table-expanded #bohr-svg { width: 21vh; height: 21vh; }
 
 .atom-scale {
   transform-origin: 220px 220px;
@@ -283,7 +287,9 @@ body {
   flex-direction: column;
   padding: 10px 20px 16px;
   min-height: 0;
+  transition: flex-basis 500ms ease;
 }
+.app.table-expanded .bottom-zone { flex-basis: 70%; }
 
 .table-toolbar {
   display: flex;
@@ -409,21 +415,42 @@ body {
   opacity: 0;
 }
 
-.heatmap-caption {
-  position: absolute;
-  top: 76px;
-  right: 10px;
-  z-index: 4;
-  width: 140px;
-  background: rgba(18,40,30,0.98);
-  border: 1px solid rgba(244,241,232,0.45);
-  border-radius: 10px;
-  padding: 10px 12px;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.45);
-  text-align: left;
+/* Decorative title living in the empty gap below the footer rows (cols 1-3 are
+   unused there since La/Ac sit in the main grid). Becomes the heatmap caption
+   when one is active, instead of a floating card that covers part of the table. */
+.grid-title {
+  grid-row: 9 / 11;
+  grid-column: 1 / 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 4px;
+  overflow: hidden;
+  pointer-events: none;
 }
-.heatmap-caption .tour-title { font-size: 12.5px; margin-bottom: 4px; }
-.heatmap-caption .tour-body { font-size: 11px; line-height: 1.35; margin-bottom: 0; }
+.grid-title-heading {
+  font-family: 'Segoe Print', 'Bradley Hand', 'Chalkboard SE', 'Comic Sans MS', cursive;
+  font-size: 21px;
+  line-height: 1.15;
+  font-weight: 700;
+  color: rgba(244,241,232,0.4);
+  transition: color 0.3s ease, font-size 0.3s ease;
+}
+.grid-title-body {
+  font-family: 'Segoe Print', 'Bradley Hand', 'Chalkboard SE', 'Comic Sans MS', cursive;
+  font-size: 10.5px;
+  line-height: 1.28;
+  margin-top: 4px;
+  color: rgba(244,241,232,0.75);
+  display: none;
+}
+.grid-title.active .grid-title-heading {
+  font-size: 18px;
+  color: var(--accent, #fff5cc);
+}
+.grid-title.active .grid-title-body { display: block; }
 
 /* ---------- D-pad ---------- */
 .dpad {

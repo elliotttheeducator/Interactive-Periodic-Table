@@ -93,6 +93,16 @@ function buildGrid() {
       gridEl.appendChild(tile);
     });
   });
+
+  const titleEl = document.createElement('div');
+  titleEl.className = 'grid-title';
+  titleEl.id = 'grid-title';
+  titleEl.innerHTML = `
+    <div class="grid-title-heading" id="grid-title-heading">${DEFAULT_GRID_TITLE}</div>
+    <div class="grid-title-body" id="grid-title-body"></div>
+  `;
+  gridEl.appendChild(titleEl);
+
   refreshGrid();
 }
 
@@ -116,6 +126,7 @@ function makeTile(e, row, col) {
 
 function refreshGrid() {
   for (const btn of gridEl.children) {
+    if (!btn.dataset.z) continue; // skip the decorative grid-title element
     const e = ELEMENTS_BY_Z[btn.dataset.z];
     const active = isActive(e);
     btn.classList.toggle('inactive', !active);
@@ -616,30 +627,35 @@ flipBtn.addEventListener('click', () => {
 });
 
 // ---------- Heatmaps ----------
+const DEFAULT_GRID_TITLE = 'Interactive<br>Periodic Table';
 const HEATMAP_INFO = {
   reactivity: {
     title: 'Reactivity',
-    body: 'Hotter = reacts more easily. Bottom-left metals and top-right nonmetals are hottest. Black noble gases barely react at all.',
+    body: 'Hotter = more reactive. Black noble gases barely react at all.',
   },
   electroneg: {
     title: 'Electronegativity',
-    body: 'How much an atom "wants" electrons. Green = wants to steal and hold onto them tightly. Blue = doesn\'t mind giving its electrons away. Black = no data.',
+    body: 'How much an atom wants electrons. Green = holds on tight. Blue = lets go easily.',
   },
 };
 
 let activeHeatmap = null; // 'reactivity' | 'electroneg' | null
 const heatReactivityBtn = document.getElementById('heat-reactivity-btn');
 const heatElectronegBtn = document.getElementById('heat-electroneg-btn');
-const heatmapCaption = document.getElementById('heatmap-caption');
 
 function setHeatmap(mode) {
   gridEl.classList.remove('heatmap-reactivity', 'heatmap-electroneg');
   heatReactivityBtn.classList.remove('active');
   heatElectronegBtn.classList.remove('active');
+  const gridTitle = document.getElementById('grid-title');
+  const headingEl = document.getElementById('grid-title-heading');
+  const bodyEl = document.getElementById('grid-title-body');
 
   if (activeHeatmap === mode) {
     activeHeatmap = null;
-    heatmapCaption.classList.add('hidden');
+    gridTitle.classList.remove('active');
+    headingEl.innerHTML = DEFAULT_GRID_TITLE;
+    bodyEl.textContent = '';
     return;
   }
 
@@ -647,12 +663,21 @@ function setHeatmap(mode) {
   gridEl.classList.add(mode === 'reactivity' ? 'heatmap-reactivity' : 'heatmap-electroneg');
   (mode === 'reactivity' ? heatReactivityBtn : heatElectronegBtn).classList.add('active');
   const info = HEATMAP_INFO[mode];
-  heatmapCaption.innerHTML = `<div class="tour-title">${info.title}</div><div class="tour-body">${info.body}</div>`;
-  heatmapCaption.classList.remove('hidden');
+  gridTitle.classList.add('active');
+  headingEl.textContent = info.title;
+  bodyEl.textContent = info.body;
 }
 
 heatReactivityBtn.addEventListener('click', () => setHeatmap('reactivity'));
 heatElectronegBtn.addEventListener('click', () => setHeatmap('electroneg'));
+
+// ---------- Expand table / shrink Bohr model ----------
+const expandTableBtn = document.getElementById('expand-table-btn');
+const appEl = document.querySelector('.app');
+expandTableBtn.addEventListener('click', () => {
+  const expanded = appEl.classList.toggle('table-expanded');
+  expandTableBtn.classList.toggle('active', expanded);
+});
 
 // ---------- Guided tour ----------
 const TOUR_STEPS = [
