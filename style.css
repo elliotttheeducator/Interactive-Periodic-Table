@@ -389,9 +389,14 @@ body {
   border-color: var(--accent, #f5d7a3);
 }
 
+.periodic-grid.heatmap-reactivity,
+.periodic-grid.heatmap-electroneg {
+  gap: 0;
+  filter: blur(4px) saturate(1.6) brightness(1.15) contrast(1.1);
+}
 .periodic-grid.heatmap-reactivity .tile,
 .periodic-grid.heatmap-electroneg .tile {
-  border-color: rgba(244,241,232,0.15);
+  border-color: transparent;
 }
 .periodic-grid.heatmap-reactivity .tile { background: var(--heat-reactivity) !important; }
 .periodic-grid.heatmap-electroneg .tile { background: var(--heat-electroneg) !important; }

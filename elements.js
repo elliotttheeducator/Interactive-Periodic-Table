@@ -313,11 +313,11 @@ function reactivityScore(z) {
       const outer = shells[shells.length - 1];
       return clamp01(0.30 + 0.06 * (outer - 1));
     }
-    case 'metalloid': return 0.35;
-    case 'post-transition-metal': return 0.40;
-    case 'transition-metal': return 0.40;
-    case 'lanthanide': return 0.35;
-    case 'actinide': return 0.42;
+    case 'metalloid': return 0.33;
+    case 'post-transition-metal': return 0.38;
+    case 'transition-metal': return 0.42;
+    case 'lanthanide': return 0.36;
+    case 'actinide': return 0.46;
     case 'noble-gas': return 0;
     default: return 0.3;
   }
@@ -325,23 +325,33 @@ function reactivityScore(z) {
 
 function lerp(a, b, t) { return a + (b - a) * t; }
 function rgbCss(rgb) { return `rgb(${Math.round(rgb[0])}, ${Math.round(rgb[1])}, ${Math.round(rgb[2])})`; }
+function clamp01(v) { return Math.min(1, Math.max(0, v)); }
 
-// Black (inert) -> deep red -> bright orange, for the reactivity heatmap.
-function reactivityColor(score) {
-  const black = [12, 10, 8], red = [176, 30, 20], orange = [255, 145, 30];
-  if (score <= 0.5) {
-    const t = score / 0.5;
-    return rgbCss(black.map((c, i) => lerp(c, red[i], t)));
-  }
-  const t = (score - 0.5) / 0.5;
-  return rgbCss(red.map((c, i) => lerp(c, orange[i], t)));
+// 3-stop gradient, with a bit of gamma so the middle band doesn't just look muddy-average.
+function triGradient(t, c0, c1, c2) {
+  const tt = Math.pow(clamp01(t), 0.85);
+  if (tt <= 0.5) return c0.map((v, i) => lerp(v, c1[i], tt / 0.5));
+  return c1.map((v, i) => lerp(v, c2[i], (tt - 0.5) / 0.5));
 }
 
-// Black (no value assigned, e.g. noble gases) -> deep navy -> electric blue/cyan,
-// for the electronegativity heatmap -- a different palette from reactivity on purpose.
+// Reactivity heatmap: deep red -> vivid orange -> bright yellow. Noble gases are a hard
+// black cutoff, not part of the gradient -- they're categorically inert, not just "cool".
+// The real per-category scores only span roughly 0.3-0.95, so we stretch that observed
+// range across the full gradient rather than wasting most of it on a narrow middle band.
+function reactivityColor(score) {
+  if (score <= 0) return rgbCss([8, 6, 5]);
+  const MIN = 0.28, MAX = 0.95;
+  const t = (score - MIN) / (MAX - MIN);
+  const red = [190, 20, 10], orange = [255, 120, 10], yellow = [255, 225, 60];
+  return rgbCss(triGradient(t, red, orange, yellow));
+}
+
+// Electronegativity heatmap: deep blue -> turquoise -> vivid green -- a different hue
+// family from reactivity on purpose. No assigned value (noble gases, mostly) is black.
 function electronegColor(en) {
-  if (en === null || en === undefined) return rgbCss([12, 10, 8]);
-  const navy = [18, 26, 66], cyan = [70, 205, 255];
-  const t = Math.min(1, en / 4.0);
-  return rgbCss(navy.map((c, i) => lerp(c, cyan[i], t)));
+  if (en === null || en === undefined) return rgbCss([8, 6, 5]);
+  const MIN = 0.7, MAX = 4.0;
+  const t = (en - MIN) / (MAX - MIN);
+  const blue = [30, 70, 220], turquoise = [10, 195, 190], green = [70, 225, 90];
+  return rgbCss(triGradient(t, blue, turquoise, green));
 }
