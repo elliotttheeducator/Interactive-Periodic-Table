@@ -255,7 +255,7 @@ function syncCircles(container, filterClass, positions, r, createClass) {
   return els;
 }
 
-const NUCLEON_SPACING = 10; // center-to-center distance between packed nucleons
+const NUCLEON_SPACING = 12; // center-to-center distance between packed nucleons (bigger dots need more room)
 
 // Packs n points onto a compact triangular (close-packed circles) lattice instead of a
 // spiral, so it reads as a normal tightly-clustered nucleus. Points are returned in a
@@ -314,8 +314,8 @@ function renderNucleus(protons, neutrons) {
     const pts = hexNucleusPositions(order.length);
     const protonPts = pts.filter((_, i) => order[i] === 'proton');
     const neutronPts = pts.filter((_, i) => order[i] === 'neutron');
-    syncCircles(nucleusGroup, 'proton', protonPts, 4.2, 'nucleon proton');
-    syncCircles(nucleusGroup, 'neutron', neutronPts, 4.2, 'nucleon neutron');
+    syncCircles(nucleusGroup, 'proton', protonPts, 5.4, 'nucleon proton');
+    syncCircles(nucleusGroup, 'neutron', neutronPts, 5.4, 'nucleon neutron');
   } else {
     if (nucleusMode !== 'blob') {
       nucleusGroup.innerHTML = '';
@@ -375,7 +375,7 @@ function renderShells(shells, nucleusRadius) {
       const angle = (2 * Math.PI * k) / count;
       electronPositions.push({ x: CENTER + radius * Math.cos(angle), y: CENTER + radius * Math.sin(angle) });
     }
-    syncCircles(shellStates[i].groupEl, 'electron', electronPositions, 4.6);
+    syncCircles(shellStates[i].groupEl, 'electron', electronPositions, 3.8);
   }
   shellStates.length = shells.length;
 }
