@@ -118,29 +118,51 @@ body {
 }
 
 .electron {
-  fill: #7ec8ff;
-  stroke: #1a4a73;
-  stroke-width: 0.8;
+  fill: url(#electronGradient);
+  stroke: #083866;
+  stroke-width: 0.6;
   cursor: pointer;
   transition: cx 550ms ease, cy 550ms ease, opacity 450ms ease, r 450ms ease;
 }
+
+/* Nucleon "ball": outer wrapper positions/fades the nucleon (transitions smoothly between
+   moves); inner group jiggles continuously via CSS; the highlight ellipse inside it orbits
+   and squashes to fake a spinning glossy sphere. Three independent transforms on three
+   different elements, so none of them clobber each other. */
+.proton-wrap, .neutron-wrap {
+  transition: transform 550ms ease, opacity 450ms ease;
+}
 .nucleon {
-  transition: cx 550ms ease, cy 550ms ease, opacity 450ms ease, r 450ms ease;
   animation: nucleon-jiggle 2.6s ease-in-out infinite;
   cursor: pointer;
 }
-.nucleon.proton { fill: #e2534d; }
-.nucleon.neutron { fill: #9aa0a6; }
+.nucleon-body { transform-box: fill-box; }
+.nucleon.proton .nucleon-body { fill: url(#protonGradient); }
+.nucleon.neutron .nucleon-body { fill: url(#neutronGradient); }
+.nucleon-highlight {
+  fill: rgba(255,255,255,0.65);
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: nucleon-spin 2.2s ease-in-out infinite;
+  pointer-events: none;
+}
 @keyframes nucleon-jiggle {
   0%, 100% { transform: translate(0, 0); }
-  25%      { transform: translate(0.6px, -0.5px); }
-  50%      { transform: translate(-0.5px, 0.6px); }
-  75%      { transform: translate(0.5px, 0.5px); }
+  25%      { transform: translate(0.9px, -0.7px); }
+  50%      { transform: translate(-0.8px, 0.9px); }
+  75%      { transform: translate(0.7px, 0.8px); }
+}
+@keyframes nucleon-spin {
+  0%   { transform: translateX(-1.8px) scaleX(0.18); opacity: 0.2; }
+  25%  { transform: translateX(0) scaleX(1); opacity: 0.85; }
+  50%  { transform: translateX(1.8px) scaleX(0.18); opacity: 0.2; }
+  75%  { transform: translateX(0) scaleX(1); opacity: 0.85; }
+  100% { transform: translateX(-1.8px) scaleX(0.18); opacity: 0.2; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .nucleon { animation: none; }
+  .nucleon, .nucleon-highlight { animation: none; }
 }
-.nucleus-blob { fill: #b0473f; opacity: 0.85; transition: r 500ms ease; }
+.nucleus-blob { fill: url(#blobGradient); opacity: 0.95; transition: r 500ms ease; }
 .nucleus-label { font-size: 13px; text-anchor: middle; fill: var(--chalk); font-weight: 600; }
 .nucleus-label.proton { fill: #ffb3ab; }
 .nucleus-label.neutron { fill: #d8dbde; }
@@ -196,9 +218,9 @@ body {
 .legend-chip .dot {
   width: 9px; height: 9px; border-radius: 50%; display: inline-block;
 }
-.dot.proton { background: #e2534d; }
-.dot.neutron { background: #9aa0a6; }
-.dot.electron { background: #7ec8ff; }
+.dot.proton { background: radial-gradient(circle at 35% 30%, #ffe0da, #ff4630 60%, #7a0f05); }
+.dot.neutron { background: radial-gradient(circle at 35% 30%, #ffffff, #e7ebef 55%, #7b8794); }
+.dot.electron { background: radial-gradient(circle at 35% 30%, #e6f6ff, #1f9bff 60%, #083866); }
 .dot.shell { background: transparent; border: 1px solid var(--chalk-dim); }
 
 /* ---------- Info panel (flip card) ---------- */

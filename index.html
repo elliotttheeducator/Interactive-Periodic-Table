@@ -12,7 +12,30 @@
   <header class="top-zone">
     <section class="bohr-panel">
       <div class="subshell-panel" id="subshell-panel"></div>
-      <svg id="bohr-svg" viewBox="0 0 440 440" aria-label="Bohr model diagram"></svg>
+      <svg id="bohr-svg" viewBox="0 0 440 440" aria-label="Bohr model diagram">
+        <defs>
+          <radialGradient id="protonGradient" cx="35%" cy="30%" r="70%">
+            <stop offset="0%" stop-color="#ffe0da"/>
+            <stop offset="40%" stop-color="#ff4630"/>
+            <stop offset="100%" stop-color="#7a0f05"/>
+          </radialGradient>
+          <radialGradient id="neutronGradient" cx="35%" cy="30%" r="70%">
+            <stop offset="0%" stop-color="#ffffff"/>
+            <stop offset="45%" stop-color="#e7ebef"/>
+            <stop offset="100%" stop-color="#7b8794"/>
+          </radialGradient>
+          <radialGradient id="electronGradient" cx="35%" cy="30%" r="70%">
+            <stop offset="0%" stop-color="#e6f6ff"/>
+            <stop offset="40%" stop-color="#1f9bff"/>
+            <stop offset="100%" stop-color="#083866"/>
+          </radialGradient>
+          <radialGradient id="blobGradient" cx="35%" cy="30%" r="70%">
+            <stop offset="0%" stop-color="#ffdcd6"/>
+            <stop offset="45%" stop-color="#c1544a"/>
+            <stop offset="100%" stop-color="#4d160f"/>
+          </radialGradient>
+        </defs>
+      </svg>
       <div class="legend-chips">
         <button class="legend-chip" data-kind="proton"><span class="dot proton"></span>Proton</button>
         <button class="legend-chip" data-kind="neutron"><span class="dot neutron"></span>Neutron</button>

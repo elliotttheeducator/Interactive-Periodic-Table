@@ -231,6 +231,7 @@ function syncCircles(container, filterClass, positions, r, createClass) {
   let els = Array.from(container.children).filter(el => el.classList.contains(filterClass));
   while (els.length > positions.length) {
     const el = els.pop();
+    el.classList.remove(filterClass); // so a rapid re-sync before removal can't "reclaim" this fading-out element
     el.style.opacity = '0';
     el.style.r = '0px';
     setTimeout(() => el.remove(), 500);
@@ -255,7 +256,55 @@ function syncCircles(container, filterClass, positions, r, createClass) {
   return els;
 }
 
-const NUCLEON_SPACING = 12; // center-to-center distance between packed nucleons (bigger dots need more room)
+// Smoothly reconciles nucleon "ball" groups in `container` with `positions`. Each nucleon
+// is a wrapper <g> (positioned via transform, so it can transition smoothly) containing an
+// inner <g> that jiggles/spins continuously via CSS, holding a gradient-filled body circle
+// plus a highlight ellipse that orbits + squashes to fake a spinning glossy sphere.
+function syncNucleonGroups(container, kind, positions, r) {
+  const wrapClass = `${kind}-wrap`;
+  let wraps = Array.from(container.children).filter(el => el.classList.contains(wrapClass));
+  while (wraps.length > positions.length) {
+    const w = wraps.pop();
+    w.classList.remove(wrapClass); // so a rapid re-sync before removal can't "reclaim" this fading-out element
+    w.style.opacity = '0';
+    w.style.transform = `${w.dataset.baseTransform} scale(0.2)`;
+    setTimeout(() => w.remove(), 500);
+  }
+  wraps.forEach((w, i) => {
+    const t = `translate(${positions[i].x}px, ${positions[i].y}px)`;
+    w.dataset.baseTransform = t;
+    w.style.transform = `${t} scale(1)`;
+  });
+  for (let i = wraps.length; i < positions.length; i++) {
+    const t = `translate(${positions[i].x}px, ${positions[i].y}px)`;
+    const wrap = svgEl('g', { class: wrapClass });
+    wrap.dataset.baseTransform = t;
+    wrap.style.opacity = '0';
+    wrap.style.transform = `${t} scale(0.2)`;
+
+    const inner = svgEl('g', { class: `nucleon ${kind}` });
+    inner.style.animationDelay = `${(-Math.random() * 3).toFixed(2)}s`;
+    const body = svgEl('circle', { class: 'nucleon-body', r });
+    const highlight = svgEl('ellipse', {
+      class: 'nucleon-highlight',
+      cx: (-r * 0.22).toFixed(2), cy: (-r * 0.3).toFixed(2),
+      rx: (r * 0.42).toFixed(2), ry: (r * 0.55).toFixed(2),
+    });
+    highlight.style.animationDelay = `${(-Math.random() * 2.2).toFixed(2)}s`;
+    inner.appendChild(body);
+    inner.appendChild(highlight);
+    wrap.appendChild(inner);
+    container.appendChild(wrap);
+
+    void wrap.getBoundingClientRect(); // force layout flush so the enter transition animates
+    wrap.style.opacity = '1';
+    wrap.style.transform = `${t} scale(1)`;
+    wraps.push(wrap);
+  }
+  return wraps;
+}
+
+const NUCLEON_SPACING = 15; // center-to-center distance between packed nucleons (bigger dots need more room)
 
 // Packs n points onto a compact triangular (close-packed circles) lattice instead of a
 // spiral, so it reads as a normal tightly-clustered nucleus. Points are returned in a
@@ -314,8 +363,8 @@ function renderNucleus(protons, neutrons) {
     const pts = hexNucleusPositions(order.length);
     const protonPts = pts.filter((_, i) => order[i] === 'proton');
     const neutronPts = pts.filter((_, i) => order[i] === 'neutron');
-    syncCircles(nucleusGroup, 'proton', protonPts, 5.4, 'nucleon proton');
-    syncCircles(nucleusGroup, 'neutron', neutronPts, 5.4, 'nucleon neutron');
+    syncNucleonGroups(nucleusGroup, 'proton', protonPts, 6.5);
+    syncNucleonGroups(nucleusGroup, 'neutron', neutronPts, 6.5);
   } else {
     if (nucleusMode !== 'blob') {
       nucleusGroup.innerHTML = '';
@@ -375,7 +424,7 @@ function renderShells(shells, nucleusRadius) {
       const angle = (2 * Math.PI * k) / count;
       electronPositions.push({ x: CENTER + radius * Math.cos(angle), y: CENTER + radius * Math.sin(angle) });
     }
-    syncCircles(shellStates[i].groupEl, 'electron', electronPositions, 3.8);
+    syncCircles(shellStates[i].groupEl, 'electron', electronPositions, 3.2);
   }
   shellStates.length = shells.length;
 }
@@ -616,8 +665,8 @@ document.querySelectorAll('.legend-chip[data-kind]').forEach(chip => {
 
 bohrSvg.addEventListener('click', (ev) => {
   const t = ev.target;
-  if (t.classList.contains('proton')) showPopup('proton', ev.clientX, ev.clientY + 16);
-  else if (t.classList.contains('neutron')) showPopup('neutron', ev.clientX, ev.clientY + 16);
+  if (t.closest('.proton')) showPopup('proton', ev.clientX, ev.clientY + 16);
+  else if (t.closest('.neutron')) showPopup('neutron', ev.clientX, ev.clientY + 16);
   else if (t.classList.contains('electron')) showPopup('electron', ev.clientX, ev.clientY + 16);
   else if (t.classList.contains('shell-ring')) showPopup('shell', ev.clientX, ev.clientY + 16);
 });
