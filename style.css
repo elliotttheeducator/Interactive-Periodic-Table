@@ -218,6 +218,24 @@ body {
 .dot.neutron { background: radial-gradient(circle at 35% 30%, #ffffff, #e7ebef 55%, #7b8794); }
 .dot.electron { background: radial-gradient(circle at 35% 30%, #e6f6ff, #1f9bff 60%, #083866); }
 .dot.shell { background: transparent; border: 1px solid var(--chalk-dim); }
+.legend-chip.nucleus-mode-chip.active {
+  background: var(--accent, #f5d7a3);
+  color: #17301f;
+  border-color: var(--accent, #f5d7a3);
+}
+
+/* ---------- 3D nucleus (genuine depth: sphere-packed nucleons, rotated + projected
+   every frame in JS, so near-side particles are bigger/brighter and far-side ones
+   shrink/dim and get occluded -- like panels rotating into and out of view on a ball). */
+.nucleon-3d { cursor: pointer; }
+.nucleon-3d .nucleon-body { transform-box: fill-box; }
+.nucleon-3d.proton .nucleon-body { fill: url(#protonGradient); }
+.nucleon-3d.neutron .nucleon-body { fill: url(#neutronGradient); }
+.nucleus-volume {
+  fill: url(#blobGradient);
+  opacity: 0.22;
+  pointer-events: none;
+}
 
 /* ---------- Info panel (flip card) ---------- */
 .info-panel {

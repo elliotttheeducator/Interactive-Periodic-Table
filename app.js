@@ -346,49 +346,212 @@ function hexNucleusPositions(n) {
   return ordered.map((p) => ({ x: CENTER + p.x, y: CENTER + p.y }));
 }
 
+// Builds a proton/neutron order that mostly alternates types (rather than clumping same-type
+// nucleons together), shared by both the 2D and 3D dot layouts.
+function buildNucleonOrder(protons, neutrons) {
+  const order = [];
+  let pCount = 0, nCount = 0;
+  while (pCount < protons || nCount < neutrons) {
+    if (pCount / Math.max(protons, 1) <= nCount / Math.max(neutrons, 1) && pCount < protons) {
+      order.push('proton'); pCount++;
+    } else if (nCount < neutrons) {
+      order.push('neutron'); nCount++;
+    } else if (pCount < protons) {
+      order.push('proton'); pCount++;
+    }
+  }
+  return order;
+}
+
+function render2DNucleus(order, nucleusRadius) {
+  if (nucleusMode !== 'dots2d') {
+    stop3DNucleus();
+    nucleusGroup.innerHTML = '';
+    nucleusMode = 'dots2d';
+  }
+  nucleusGroup.classList.add('spinning');
+  const pts = hexNucleusPositions(order.length);
+  const protonPts = pts.filter((_, i) => order[i] === 'proton');
+  const neutronPts = pts.filter((_, i) => order[i] === 'neutron');
+  syncNucleonGroups(nucleusGroup, 'proton', protonPts, 6.5);
+  syncNucleonGroups(nucleusGroup, 'neutron', neutronPts, 6.5);
+}
+
+function renderBlobNucleus(protons, neutrons, nucleusRadius) {
+  if (nucleusMode !== 'blob') {
+    stop3DNucleus();
+    nucleusGroup.innerHTML = '';
+    nucleusGroup.classList.remove('spinning');
+    nucleusGroup.appendChild(svgEl('circle', { class: 'nucleus-blob', cx: CENTER, cy: CENTER, r: 0 }));
+    nucleusGroup.appendChild(svgEl('text', { class: 'nucleus-label proton', x: CENTER, y: CENTER - 4 }));
+    nucleusGroup.appendChild(svgEl('text', { class: 'nucleus-label neutron', x: CENTER, y: CENTER + 12 }));
+    nucleusMode = 'blob';
+  }
+  const r = Math.min(46, nucleusRadius);
+  nucleusGroup.querySelector('.nucleus-blob').setAttribute('r', r);
+  nucleusGroup.querySelector('.nucleus-label.proton').textContent = `${protons}p`;
+  nucleusGroup.querySelector('.nucleus-label.neutron').textContent = `${neutrons}n`;
+}
+
 function renderNucleus(protons, neutrons) {
   const total = protons + neutrons;
   const nucleusRadius = NUCLEUS_K * Math.cbrt(Math.max(total, 1));
-  // The whole packed cluster spins as one rigid body (like the electron shells do);
-  // doesn't apply to blob mode since rotating the p/n text labels would look broken.
-  nucleusGroup.classList.toggle('spinning', total <= BLOB_THRESHOLD);
 
   if (total <= BLOB_THRESHOLD) {
-    if (nucleusMode !== 'dots') {
-      nucleusGroup.innerHTML = '';
-      nucleusMode = 'dots';
+    const order = buildNucleonOrder(protons, neutrons);
+    if (nucleusViewMode === '3d') {
+      render3DNucleus(order, nucleusRadius);
+    } else {
+      render2DNucleus(order, nucleusRadius);
     }
-    const order = [];
-    let pCount = 0, nCount = 0;
-    while (pCount < protons || nCount < neutrons) {
-      if (pCount / Math.max(protons, 1) <= nCount / Math.max(neutrons, 1) && pCount < protons) {
-        order.push('proton'); pCount++;
-      } else if (nCount < neutrons) {
-        order.push('neutron'); nCount++;
-      } else if (pCount < protons) {
-        order.push('proton'); pCount++;
-      }
-    }
-    const pts = hexNucleusPositions(order.length);
-    const protonPts = pts.filter((_, i) => order[i] === 'proton');
-    const neutronPts = pts.filter((_, i) => order[i] === 'neutron');
-    syncNucleonGroups(nucleusGroup, 'proton', protonPts, 6.5);
-    syncNucleonGroups(nucleusGroup, 'neutron', neutronPts, 6.5);
   } else {
-    if (nucleusMode !== 'blob') {
-      nucleusGroup.innerHTML = '';
-      nucleusGroup.appendChild(svgEl('circle', { class: 'nucleus-blob', cx: CENTER, cy: CENTER, r: 0 }));
-      nucleusGroup.appendChild(svgEl('text', { class: 'nucleus-label proton', x: CENTER, y: CENTER - 4 }));
-      nucleusGroup.appendChild(svgEl('text', { class: 'nucleus-label neutron', x: CENTER, y: CENTER + 12 }));
-      nucleusMode = 'blob';
-    }
-    const r = Math.min(46, nucleusRadius);
-    nucleusGroup.querySelector('.nucleus-blob').setAttribute('r', r);
-    nucleusGroup.querySelector('.nucleus-label.proton').textContent = `${protons}p`;
-    nucleusGroup.querySelector('.nucleus-label.neutron').textContent = `${neutrons}n`;
+    renderBlobNucleus(protons, neutrons, nucleusRadius);
   }
 
   return nucleusRadius;
+}
+
+// ---------- 3D nucleus: genuine depth via a Fibonacci-sphere layout, rotated and
+// projected every frame in JS (no WebGL/3D engine -- just trig + direct SVG attrs, cheap
+// enough for older classroom machines). Near-side nucleons render bigger/brighter; far-side
+// ones shrink, dim, and are painted behind -- so they visibly rotate out of view, soccer-
+// ball style. A "2D nucleus" toggle switches back to the flat packed-disc view. ----------
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+const NUCLEUS_3D_SPIN_MS = 15000; // full revolution period
+let nucleusViewMode = '3d'; // '2d' | '3d' -- user preference, only matters while under BLOB_THRESHOLD
+let nucleus3DRecords = [];  // { kind, el, fromPoint, toPoint, animStart, duration, depth }
+let nucleus3DVolumeEl = null;
+let nucleus3DRadius = { current: 0, target: 0, from: 0, animStart: 0 };
+let nucleus3DFrameHandle = null;
+let nucleus3DSortCounter = 0;
+
+function easeOutBack(t) {
+  const c1 = 1.70158, c3 = c1 + 1;
+  const x = Math.min(1, Math.max(0, t));
+  return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
+}
+
+// Evenly distributes n points on a unit sphere (golden-angle spiral) -- the "soccer ball
+// panel" layout the nucleus rotates through.
+function fibonacciSphereDirs(n) {
+  const dirs = [];
+  for (let i = 0; i < n; i++) {
+    const y = n === 1 ? 0 : 1 - (i / (n - 1)) * 2;
+    const ringR = Math.sqrt(Math.max(0, 1 - y * y));
+    const theta = i * GOLDEN_ANGLE;
+    dirs.push({ x: Math.cos(theta) * ringR, y, z: Math.sin(theta) * ringR });
+  }
+  return dirs;
+}
+
+function randomFarPoint3D(radius = 200) {
+  const u = Math.random() * 2 - 1;
+  const t = Math.random() * Math.PI * 2;
+  const ringR = Math.sqrt(Math.max(0, 1 - u * u));
+  return { x: radius * ringR * Math.cos(t), y: radius * u, z: radius * ringR * Math.sin(t) };
+}
+
+function nucleon3DInterpPoint(rec, now) {
+  const t = Math.min(1, (now - rec.animStart) / rec.duration);
+  const eased = easeOutBack(t);
+  return {
+    x: lerp(rec.fromPoint.x, rec.toPoint.x, eased),
+    y: lerp(rec.fromPoint.y, rec.toPoint.y, eased),
+    z: lerp(rec.fromPoint.z, rec.toPoint.z, eased),
+  };
+}
+
+function stop3DNucleus() {
+  nucleus3DRecords = [];
+  nucleus3DVolumeEl = null;
+}
+
+function render3DNucleus(order, nucleusRadius) {
+  const now = performance.now();
+
+  if (nucleusMode !== 'dots3d') {
+    nucleusGroup.innerHTML = '';
+    nucleusGroup.classList.remove('spinning');
+    nucleus3DRecords = [];
+    nucleusMode = 'dots3d';
+    nucleus3DVolumeEl = svgEl('circle', { class: 'nucleus-volume', cx: CENTER, cy: CENTER, r: 0 });
+    nucleusGroup.appendChild(nucleus3DVolumeEl);
+    nucleus3DRadius = { current: 0, target: nucleusRadius, from: 0, animStart: now };
+  } else if (nucleus3DRadius.target !== nucleusRadius) {
+    nucleus3DRadius.from = nucleus3DRadius.current;
+    nucleus3DRadius.target = nucleusRadius;
+    nucleus3DRadius.animStart = now;
+  }
+
+  const dirs = fibonacciSphereDirs(order.length);
+
+  // Extras fade + shrink outward in place, then remove -- mirrors the 2D removal pattern.
+  while (nucleus3DRecords.length > order.length) {
+    const rec = nucleus3DRecords.pop();
+    const el = rec.el;
+    el.style.transition = 'transform 400ms ease, opacity 400ms ease';
+    el.style.opacity = '0';
+    el.style.transform = `${el.style.transform} scale(0.15)`;
+    setTimeout(() => el.remove(), 420);
+  }
+
+  for (let i = 0; i < order.length; i++) {
+    const targetPoint = { x: dirs[i].x * nucleusRadius, y: dirs[i].y * nucleusRadius, z: dirs[i].z * nucleusRadius };
+    let rec = nucleus3DRecords[i];
+    if (!rec) {
+      const wrap = svgEl('g', { class: `nucleon-3d ${order[i]}` });
+      const body = svgEl('circle', { class: 'nucleon-body', cx: 0, cy: 0, r: 6.5 });
+      wrap.appendChild(body);
+      nucleusGroup.appendChild(wrap);
+      rec = {
+        kind: order[i], el: wrap,
+        fromPoint: randomFarPoint3D(),
+        toPoint: targetPoint,
+        animStart: now, duration: 700, depth: 0,
+      };
+      nucleus3DRecords[i] = rec;
+    } else if (rec.toPoint.x !== targetPoint.x || rec.toPoint.y !== targetPoint.y || rec.toPoint.z !== targetPoint.z) {
+      rec.fromPoint = nucleon3DInterpPoint(rec, now);
+      rec.toPoint = targetPoint;
+      rec.animStart = now;
+      rec.duration = 500;
+    }
+  }
+
+  if (!nucleus3DFrameHandle) nucleus3DFrameHandle = requestAnimationFrame(step3DNucleus);
+}
+
+function step3DNucleus(now) {
+  if (nucleusMode !== 'dots3d') { nucleus3DFrameHandle = null; return; }
+
+  const rT = Math.min(1, (now - nucleus3DRadius.animStart) / 500);
+  nucleus3DRadius.current = lerp(nucleus3DRadius.from, nucleus3DRadius.target, easeOutBack(rT));
+  if (nucleus3DVolumeEl) nucleus3DVolumeEl.setAttribute('r', Math.max(0, nucleus3DRadius.current * 0.9));
+
+  const angle = (now / NUCLEUS_3D_SPIN_MS) * Math.PI * 2;
+  const cosA = Math.cos(angle), sinA = Math.sin(angle);
+  const maxR = Math.max(nucleus3DRadius.current, 1);
+
+  nucleus3DRecords.forEach((rec) => {
+    const p = nucleon3DInterpPoint(rec, now);
+    const rx = p.x * cosA + p.z * sinA;
+    const rz = -p.x * sinA + p.z * cosA;
+    const ry = p.y;
+    const depthT = clamp01((rz + maxR) / (2 * maxR));
+    const scale = lerp(0.55, 1.15, depthT);
+    const opacity = lerp(0.45, 1, depthT);
+    rec.depth = rz;
+    rec.el.style.transform = `translate(${(CENTER + rx).toFixed(2)}px, ${(CENTER + ry).toFixed(2)}px) scale(${scale.toFixed(2)})`;
+    rec.el.style.opacity = opacity.toFixed(2);
+  });
+
+  nucleus3DSortCounter++;
+  if (nucleus3DSortCounter % 9 === 0) {
+    const sorted = [...nucleus3DRecords].sort((a, b) => a.depth - b.depth);
+    sorted.forEach((rec) => nucleusGroup.appendChild(rec.el));
+  }
+
+  nucleus3DFrameHandle = requestAnimationFrame(step3DNucleus);
 }
 
 function renderShells(shells, nucleusRadius) {
@@ -765,6 +928,15 @@ const appEl = document.querySelector('.app');
 expandTableBtn.addEventListener('click', () => {
   const expanded = appEl.classList.toggle('table-expanded');
   expandTableBtn.classList.toggle('active', expanded);
+});
+
+// ---------- Nucleus 3D/2D toggle ----------
+const nucleusModeBtn = document.getElementById('nucleus-mode-btn');
+nucleusModeBtn.addEventListener('click', () => {
+  nucleusViewMode = nucleusViewMode === '3d' ? '2d' : '3d';
+  nucleusModeBtn.classList.toggle('active', nucleusViewMode === '3d');
+  nucleusModeBtn.innerHTML = nucleusViewMode === '3d' ? '🌐 3D nucleus' : '⬛ 2D nucleus';
+  renderBohr(state.z);
 });
 
 // ---------- Guided tour ----------
