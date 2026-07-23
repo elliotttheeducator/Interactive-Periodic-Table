@@ -255,15 +255,40 @@ function syncCircles(container, filterClass, positions, r, createClass) {
   return els;
 }
 
-function spiralPoints(n, maxRadius) {
-  const pts = [];
-  const golden = Math.PI * (3 - Math.sqrt(5));
-  for (let i = 0; i < n; i++) {
-    const rr = maxRadius * Math.sqrt((i + 0.5) / n);
-    const theta = i * golden;
-    pts.push({ x: CENTER + rr * Math.cos(theta), y: CENTER + rr * Math.sin(theta) });
+const NUCLEON_SPACING = 10; // center-to-center distance between packed nucleons
+
+// Packs n points onto a compact triangular (close-packed circles) lattice instead of a
+// spiral, so it reads as a normal tightly-clustered nucleus. Points are returned in a
+// row-by-row snake order so that assigning proton/neutron labels in sequence produces a
+// mostly-alternating pattern rather than same-type nucleons clumping together.
+function hexNucleusPositions(n) {
+  if (n <= 0) return [];
+  const ringsNeeded = Math.ceil(Math.sqrt(n)) + 3;
+  const candidates = [];
+  for (let row = -ringsNeeded; row <= ringsNeeded; row++) {
+    const y = row * NUCLEON_SPACING * (Math.sqrt(3) / 2);
+    const xOffset = (Math.abs(row) % 2 === 1) ? NUCLEON_SPACING / 2 : 0;
+    for (let col = -ringsNeeded; col <= ringsNeeded; col++) {
+      const x = col * NUCLEON_SPACING + xOffset;
+      candidates.push({ x, y, row, dist: Math.hypot(x, y) });
+    }
   }
-  return pts;
+  candidates.sort((a, b) => a.dist - b.dist);
+  const chosen = candidates.slice(0, n);
+
+  const byRow = new Map();
+  chosen.forEach((p) => {
+    if (!byRow.has(p.row)) byRow.set(p.row, []);
+    byRow.get(p.row).push(p);
+  });
+  const rowKeys = Array.from(byRow.keys()).sort((a, b) => a - b);
+  const ordered = [];
+  rowKeys.forEach((r, idx) => {
+    const rowPts = byRow.get(r).sort((a, b) => a.x - b.x);
+    if (idx % 2 === 1) rowPts.reverse();
+    ordered.push(...rowPts);
+  });
+  return ordered.map((p) => ({ x: CENTER + p.x, y: CENTER + p.y }));
 }
 
 function renderNucleus(protons, neutrons) {
@@ -286,7 +311,7 @@ function renderNucleus(protons, neutrons) {
         order.push('proton'); pCount++;
       }
     }
-    const pts = spiralPoints(order.length, nucleusRadius);
+    const pts = hexNucleusPositions(order.length);
     const protonPts = pts.filter((_, i) => order[i] === 'proton');
     const neutronPts = pts.filter((_, i) => order[i] === 'neutron');
     syncCircles(nucleusGroup, 'proton', protonPts, 4.2, 'nucleon proton');
@@ -438,8 +463,13 @@ function spawnComicBursts(prevZ, nextZ) {
   const dN = nextNeutrons - prevNeutrons;
   const dShell = nextShells.length - prevShells.length;
   const nextTotal = next.z + nextNeutrons;
-  const nucleusRadius = NUCLEUS_K * Math.cbrt(Math.max(nextTotal, 1));
-  const outerRadius = nucleusRadius + RING_GAP * (Math.max(nextShells.length, prevShells.length) + 1.6);
+  const scale = atomicRadiusScale(nextZ);
+  const rawNucleusRadius = NUCLEUS_K * Math.cbrt(Math.max(nextTotal, 1));
+  const rawOuterRadius = rawNucleusRadius + RING_GAP * (Math.max(nextShells.length, prevShells.length) + 1.6);
+  // Clamp so bursts stay on-screen for high-shell-count atoms instead of spawning
+  // further and further above the visible diagram as more shells are added.
+  const nucleusRadius = Math.min(rawNucleusRadius * scale, 55);
+  const outerRadius = Math.min(rawOuterRadius * scale, 150);
 
   // Spawn points sit clear of the nucleus/rings themselves (upper-left / lower-right of it)
   // so the burst text doesn't sit on top of the particles actually changing.
