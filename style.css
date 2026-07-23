@@ -126,9 +126,7 @@ body {
 }
 
 /* Nucleon "ball": outer wrapper positions/fades the nucleon (transitions smoothly between
-   moves); inner group jiggles continuously via CSS; the highlight ellipse inside it orbits
-   and squashes to fake a spinning glossy sphere. Three independent transforms on three
-   different elements, so none of them clobber each other. */
+   moves); inner group jiggles continuously via CSS around that position. */
 .proton-wrap, .neutron-wrap {
   transition: transform 550ms ease, opacity 450ms ease;
 }
@@ -139,46 +137,14 @@ body {
 .nucleon-body { transform-box: fill-box; }
 .nucleon.proton .nucleon-body { fill: url(#protonGradient); }
 .nucleon.neutron .nucleon-body { fill: url(#neutronGradient); }
-.nucleon-highlight {
-  fill: rgba(255,255,255,0.7);
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: nucleon-spin 2.8s linear infinite;
-  pointer-events: none;
-}
 @keyframes nucleon-jiggle {
   0%, 100% { transform: translate(0, 0); }
   25%      { transform: translate(0.9px, -0.7px); }
   50%      { transform: translate(-0.8px, 0.9px); }
   75%      { transform: translate(0.7px, 0.8px); }
 }
-/* Models a glint orbiting the equator of a sphere around a vertical axis: horizontal
-   position follows sin(angle) and both width (foreshortening) and opacity follow
-   cos(angle), so it's full-width and brightest face-on, thins to nothing exactly as it
-   reaches the side (90°), stays hidden while it sweeps around the back, then reappears
-   and grows again coming around the other side. Many close keyframe steps + linear
-   timing approximate the true curve instead of a coarse few-point ease. */
-@keyframes nucleon-spin {
-  0%     { transform: translateX(0px)     scaleX(1);    opacity: 1;    }
-  6.25%  { transform: translateX(0.77px)  scaleX(0.92); opacity: 0.92; }
-  12.5%  { transform: translateX(1.41px)  scaleX(0.71); opacity: 0.71; }
-  18.75% { transform: translateX(1.85px)  scaleX(0.38); opacity: 0.38; }
-  25%    { transform: translateX(2px)     scaleX(0);    opacity: 0;    }
-  31.25% { transform: translateX(1.85px)  scaleX(0);    opacity: 0;    }
-  37.5%  { transform: translateX(1.41px)  scaleX(0);    opacity: 0;    }
-  43.75% { transform: translateX(0.77px)  scaleX(0);    opacity: 0;    }
-  50%    { transform: translateX(0px)     scaleX(0);    opacity: 0;    }
-  56.25% { transform: translateX(-0.77px) scaleX(0);    opacity: 0;    }
-  62.5%  { transform: translateX(-1.41px) scaleX(0);    opacity: 0;    }
-  68.75% { transform: translateX(-1.85px) scaleX(0);    opacity: 0;    }
-  75%    { transform: translateX(-2px)    scaleX(0);    opacity: 0;    }
-  81.25% { transform: translateX(-1.85px) scaleX(0.38); opacity: 0.38; }
-  87.5%  { transform: translateX(-1.41px) scaleX(0.71); opacity: 0.71; }
-  93.75% { transform: translateX(-0.77px) scaleX(0.92); opacity: 0.92; }
-  100%   { transform: translateX(0px)     scaleX(1);    opacity: 1;    }
-}
 @media (prefers-reduced-motion: reduce) {
-  .nucleon, .nucleon-highlight { animation: none; }
+  .nucleon { animation: none; }
 }
 .nucleus-blob { fill: url(#blobGradient); opacity: 0.95; transition: r 500ms ease; }
 .nucleus-label { font-size: 13px; text-anchor: middle; fill: var(--chalk); font-weight: 600; }

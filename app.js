@@ -285,14 +285,7 @@ function syncNucleonGroups(container, kind, positions, r) {
     const inner = svgEl('g', { class: `nucleon ${kind}` });
     inner.style.animationDelay = `${(-Math.random() * 3).toFixed(2)}s`;
     const body = svgEl('circle', { class: 'nucleon-body', r });
-    const highlight = svgEl('ellipse', {
-      class: 'nucleon-highlight',
-      cx: (-r * 0.22).toFixed(2), cy: (-r * 0.3).toFixed(2),
-      rx: (r * 0.42).toFixed(2), ry: (r * 0.55).toFixed(2),
-    });
-    highlight.style.animationDelay = `${(-Math.random() * 2.2).toFixed(2)}s`;
     inner.appendChild(body);
-    inner.appendChild(highlight);
     wrap.appendChild(inner);
     container.appendChild(wrap);
 
