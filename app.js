@@ -224,8 +224,17 @@ function ensureSkeleton() {
   bohrSvg.appendChild(atomGroup);
 }
 
+// A random point well outside the diagram's usual bounds, used as the origin for a
+// newly-arriving particle's "flying in" entrance.
+function randomFarPoint(radius = 190) {
+  const angle = Math.random() * Math.PI * 2;
+  return { x: CENTER + radius * Math.cos(angle), y: CENTER + radius * Math.sin(angle) };
+}
+
 // Smoothly reconciles the circles in `container` matching `filterClass` with `positions`:
-// existing ones transition to their new spot, extras fade out, missing ones fade in.
+// existing ones transition to their new spot, extras fade out, new ones fly in from a
+// random point outside the diagram and bounce into place (see the back-out easing on
+// .electron's transition).
 function syncCircles(container, filterClass, positions, r, createClass) {
   createClass = createClass || filterClass;
   let els = Array.from(container.children).filter(el => el.classList.contains(filterClass));
@@ -241,14 +250,17 @@ function syncCircles(container, filterClass, positions, r, createClass) {
     el.style.cy = `${positions[i].y}px`;
   });
   for (let i = els.length; i < positions.length; i++) {
+    const far = randomFarPoint();
     const el = svgEl('circle', { class: createClass, r: 0 });
-    el.style.cx = `${positions[i].x}px`;
-    el.style.cy = `${positions[i].y}px`;
+    el.style.cx = `${far.x}px`;
+    el.style.cy = `${far.y}px`;
     el.style.r = '0px';
     el.style.opacity = '0';
     el.style.animationDelay = `${(-Math.random() * 3).toFixed(2)}s`;
     container.appendChild(el);
-    void el.getBoundingClientRect(); // force layout flush so the 0-state actually paints first
+    void el.getBoundingClientRect(); // force layout flush so the flight-in actually animates
+    el.style.cx = `${positions[i].x}px`;
+    el.style.cy = `${positions[i].y}px`;
     el.style.r = `${r}px`;
     el.style.opacity = '1';
     els.push(el);
@@ -258,8 +270,8 @@ function syncCircles(container, filterClass, positions, r, createClass) {
 
 // Smoothly reconciles nucleon "ball" groups in `container` with `positions`. Each nucleon
 // is a wrapper <g> (positioned via transform, so it can transition smoothly) containing an
-// inner <g> that jiggles/spins continuously via CSS, holding a gradient-filled body circle
-// plus a highlight ellipse that orbits + squashes to fake a spinning glossy sphere.
+// inner <g> that jiggles continuously via CSS, holding a gradient-filled body circle. New
+// nucleons fly in from a random point outside the diagram and bounce into place.
 function syncNucleonGroups(container, kind, positions, r) {
   const wrapClass = `${kind}-wrap`;
   let wraps = Array.from(container.children).filter(el => el.classList.contains(wrapClass));
@@ -277,10 +289,11 @@ function syncNucleonGroups(container, kind, positions, r) {
   });
   for (let i = wraps.length; i < positions.length; i++) {
     const t = `translate(${positions[i].x}px, ${positions[i].y}px)`;
+    const far = randomFarPoint();
     const wrap = svgEl('g', { class: wrapClass });
     wrap.dataset.baseTransform = t;
     wrap.style.opacity = '0';
-    wrap.style.transform = `${t} scale(0.2)`;
+    wrap.style.transform = `translate(${far.x}px, ${far.y}px) scale(0.4)`;
 
     const inner = svgEl('g', { class: `nucleon ${kind}` });
     inner.style.animationDelay = `${(-Math.random() * 3).toFixed(2)}s`;
@@ -289,7 +302,7 @@ function syncNucleonGroups(container, kind, positions, r) {
     wrap.appendChild(inner);
     container.appendChild(wrap);
 
-    void wrap.getBoundingClientRect(); // force layout flush so the enter transition animates
+    void wrap.getBoundingClientRect(); // force layout flush so the flight-in actually animates
     wrap.style.opacity = '1';
     wrap.style.transform = `${t} scale(1)`;
     wraps.push(wrap);
@@ -297,7 +310,7 @@ function syncNucleonGroups(container, kind, positions, r) {
   return wraps;
 }
 
-const NUCLEON_SPACING = 15; // center-to-center distance between packed nucleons (bigger dots need more room)
+const NUCLEON_SPACING = 13.6; // center-to-center distance between packed nucleons (just enough room for r=6.5 balls not to overlap)
 
 // Packs n points onto a compact triangular (close-packed circles) lattice instead of a
 // spiral, so it reads as a normal tightly-clustered nucleus. Points are returned in a
@@ -336,6 +349,9 @@ function hexNucleusPositions(n) {
 function renderNucleus(protons, neutrons) {
   const total = protons + neutrons;
   const nucleusRadius = NUCLEUS_K * Math.cbrt(Math.max(total, 1));
+  // The whole packed cluster spins as one rigid body (like the electron shells do);
+  // doesn't apply to blob mode since rotating the p/n text labels would look broken.
+  nucleusGroup.classList.toggle('spinning', total <= BLOB_THRESHOLD);
 
   if (total <= BLOB_THRESHOLD) {
     if (nucleusMode !== 'dots') {
