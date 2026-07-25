@@ -418,22 +418,23 @@ function renderNucleus(protons, neutrons) {
 // molecules. That's what actually pulls neighbours in touching-close with no gaps, rather
 // than just letting them float apart to fill whatever space is available. A soft wall at the
 // nucleus's physical radius (NUCLEUS_K*cbrt(total nucleon count), the same law used
-// elsewhere for ring-gap placement) plus a very weak centring pull just keep the whole blob
-// anchored in place -- they aren't what gives it its density. Random thermal jitter keeps
-// nucleons continuously swimming past and around each other. No fixed lattice, no rigid
-// rotation of the whole cluster. A slow "camera" orbit around the cluster (used only for
-// projection, not part of the physics) gives the near/far depth cue: closer nucleons render
-// bigger/brighter, farther ones smaller/dimmer and are painted behind. A "2D nucleus" toggle
-// switches back to the flat packed-disc view. ----------
+// elsewhere for ring-gap placement) plus a firm centring pull quickly draw newly-arrived or
+// scattered nucleons back into a single ball, rather than leaving them drifting for ages.
+// Random thermal jitter keeps nucleons continuously swimming past and swapping places with
+// each other. No fixed lattice, no rigid rotation of the whole cluster. A slow "camera" orbit
+// around the cluster (used only for projection, not part of the physics) gives the near/far
+// depth cue: closer nucleons render bigger/brighter, farther ones smaller/dimmer and are
+// painted behind. New nucleons shoot in from well outside the visible diagram. A "2D
+// nucleus" toggle switches back to the flat packed-disc view. ----------
 const NUCLEUS_3D_SPIN_MS = 26000;   // period of the viewing-angle "camera" orbit
 const NUCLEUS_3D_SPACING = 12.4;    // equilibrium centre-to-centre distance -- a touch under 2*bodyR so touching balls read as gap-free
 const NUCLEUS_3D_CUTOFF = NUCLEUS_3D_SPACING * 1.55; // beyond this, nucleons don't interact at all
-const NUCLEUS_3D_REPEL_K = 0.12;    // steep push-apart once closer than NUCLEUS_3D_SPACING
-const NUCLEUS_3D_ATTRACT_K = 0.02;  // mild pull-together for neighbours that have drifted apart (closes gaps)
+const NUCLEUS_3D_REPEL_K = 0.16;    // steep push-apart once closer than NUCLEUS_3D_SPACING
+const NUCLEUS_3D_ATTRACT_K = 0.028; // mild pull-together for neighbours that have drifted apart (closes gaps)
 const NUCLEUS_3D_WALL_K = 0.006;    // how hard the nucleus's outer radius pushes nucleons back in (safety backstop, not the packing mechanism)
-const NUCLEUS_3D_CENTER_K = 0.00012; // very weak leash keeping the whole blob anchored at the centre
-const NUCLEUS_3D_JITTER = 0.05;     // per-frame random thermal jiggle -- the "liquid flow"
-const NUCLEUS_3D_DAMPING = 0.86;    // velocity decay per ~16.7ms simulation step
+const NUCLEUS_3D_CENTER_K = 0.0022; // pull toward the centre -- strong enough to pull a freshly-arrived scatter of nucleons into a ball quickly
+const NUCLEUS_3D_JITTER = 0.14;     // per-frame random thermal jiggle -- nucleons visibly swap places and swim around each other
+const NUCLEUS_3D_DAMPING = 0.92;    // velocity decay per ~16.7ms simulation step -- looser than before so that jiggle keeps things moving
 let nucleusViewMode = '3d'; // '2d' | '3d' -- user preference, only matters while under BLOB_THRESHOLD
 let nucleus3DRecords = new Map(); // order-index -> { kind, el, pos:{x,y,z}, vel:{x,y,z}, leaving, depth }
 let nucleus3DTargetRadius = 30;
@@ -441,7 +442,7 @@ let nucleus3DFrameHandle = null;
 let nucleus3DSortCounter = 0;
 let nucleus3DLastTick = 0;
 
-function randomFarPoint3D(radius = 200) {
+function randomFarPoint3D(radius = 420) {
   const u = Math.random() * 2 - 1;
   const t = Math.random() * Math.PI * 2;
   const ringR = Math.sqrt(Math.max(0, 1 - u * u));
@@ -484,7 +485,7 @@ function render3DNucleus(order, nucleusRadius) {
     nucleusGroup.appendChild(wrap);
     const far = randomFarPoint3D();
     const d = Math.max(1, Math.hypot(far.x, far.y, far.z));
-    const speed = 4.2;
+    const speed = 13;
     nucleus3DRecords.set(i, {
       kind: order[i], el: wrap, leaving: false, depth: 0,
       pos: far,
