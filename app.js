@@ -421,17 +421,18 @@ function renderNucleus(protons, neutrons) {
 // elsewhere for ring-gap placement) plus a firm centring pull quickly draw newly-arrived or
 // scattered nucleons back into a single ball, rather than leaving them drifting for ages.
 // Random thermal jitter keeps nucleons continuously swimming past and swapping places with
-// each other. No fixed lattice, no rigid rotation of the whole cluster. A brisk "camera"
-// orbit around the cluster (used only for projection, not part of the physics) gives the
-// near/far depth cue: closer nucleons render bigger/brighter, farther ones smaller/dimmer
-// and are painted behind. Its speed and direction re-roll at random intervals, so it
-// occasionally reverses or speeds up/slows down rather than spinning at one constant rate.
-// New nucleons shoot in from well outside the visible diagram. A "2D nucleus" toggle
-// switches back to the flat packed-disc view. ----------
-const NUCLEUS_3D_SPIN_PERIOD_MIN = 3200;  // fastest a camera-orbit revolution can be (ms)
-const NUCLEUS_3D_SPIN_PERIOD_MAX = 6000;  // slowest a camera-orbit revolution can be (ms)
-const NUCLEUS_3D_SPIN_REROLL_MIN = 2500;  // how soon the camera orbit can next change speed/direction (ms)
-const NUCLEUS_3D_SPIN_REROLL_MAX = 5500;
+// each other. No fixed lattice, no rigid rotation of the whole cluster. A "camera" orbit
+// around the cluster (used only for projection, not part of the physics) gives the near/far
+// depth cue: closer nucleons render bigger/brighter, farther ones smaller/dimmer and are
+// painted behind. Adding or removing nucleons (moving to a different element) kicks that
+// orbit up to a fast spin in a freshly-rolled random direction, which then decays back down
+// to a slow steady rotation over the next few seconds -- direction only ever changes on an
+// element change, never mid-idle. New nucleons shoot in from well outside the visible
+// diagram; removed ones shoot back out the same way. A "2D nucleus" toggle switches back to
+// the flat packed-disc view. ----------
+const NUCLEUS_3D_SPIN_BASE_PERIOD = 9000;  // slow resting rotation it decays down to (ms per revolution)
+const NUCLEUS_3D_SPIN_BOOST_PERIOD = 1900; // fast rotation right after an element change (ms per revolution)
+const NUCLEUS_3D_SPIN_DECAY = 0.988;       // per-~16.7ms-step pull of the boosted speed back toward baseline
 const NUCLEUS_3D_SPACING = 12.4;    // equilibrium centre-to-centre distance -- a touch under 2*bodyR so touching balls read as gap-free
 const NUCLEUS_3D_CUTOFF = NUCLEUS_3D_SPACING * 1.55; // beyond this, nucleons don't interact at all
 const NUCLEUS_3D_REPEL_K = 0.16;    // steep push-apart once closer than NUCLEUS_3D_SPACING
@@ -447,9 +448,10 @@ let nucleus3DFrameHandle = null;
 let nucleus3DSortCounter = 0;
 let nucleus3DLastTick = 0;
 let nucleus3DCameraAngle = 0;
-let nucleus3DCameraSpeed = 0;    // radians/ms, signed (direction)
-let nucleus3DCameraRerollAt = 0;
+let nucleus3DCameraSpeed = 0;    // radians/ms, signed -- current (possibly boosted) angular speed
+let nucleus3DCameraDir = 1;      // +1 | -1 -- only re-rolled on an element change
 let nucleus3DCameraLastTick = 0;
+let nucleus3DPrevTotal = -1;     // last seen nucleon count, to detect an element change
 
 function randomFarPoint3D(radius = 420) {
   const u = Math.random() * 2 - 1;
@@ -468,21 +470,34 @@ function render3DNucleus(order, nucleusRadius) {
     nucleusMode = 'dots3d';
     nucleus3DLastTick = performance.now();
     nucleus3DCameraLastTick = nucleus3DLastTick;
-    nucleus3DCameraRerollAt = 0; // force an immediate speed/direction roll on the first frame
+    nucleus3DCameraDir = Math.random() < 0.5 ? -1 : 1;
+    nucleus3DCameraSpeed = nucleus3DCameraDir * (Math.PI * 2) / NUCLEUS_3D_SPIN_BASE_PERIOD;
+    nucleus3DPrevTotal = -1; // don't treat entering 3D mode itself as an "element changed" spin-up
   }
 
-  // Extras (count shrank) get an outward "pop" impulse, fade, then leave the simulation.
+  // A changed nucleon count means the element changed -- re-roll the spin direction and kick
+  // the camera orbit up to a fast spin, which then decays back down to a slow steady rotation
+  // (see step3DNucleus). Direction never changes except on this event.
+  if (nucleus3DPrevTotal !== -1 && nucleus3DPrevTotal !== order.length) {
+    nucleus3DCameraDir = Math.random() < 0.5 ? -1 : 1;
+    nucleus3DCameraSpeed = nucleus3DCameraDir * (Math.PI * 2) / NUCLEUS_3D_SPIN_BOOST_PERIOD;
+  }
+  nucleus3DPrevTotal = order.length;
+
+  // Extras (count shrank) shoot back out the way new ones shoot in -- a strong outward
+  // impulse that carries them off the visible diagram before they fade and leave the
+  // simulation.
   for (const [i, rec] of nucleus3DRecords) {
     if (i >= order.length && !rec.leaving) {
       rec.leaving = true;
+      rec.leaveStart = performance.now();
       const d = Math.max(1, Math.hypot(rec.pos.x, rec.pos.y, rec.pos.z));
-      rec.vel.x += (rec.pos.x / d) * 5;
-      rec.vel.y += (rec.pos.y / d) * 5;
-      rec.vel.z += (rec.pos.z / d) * 5;
-      rec.el.style.transition = 'opacity 400ms ease';
-      rec.el.style.opacity = '0';
+      const kick = 15;
+      rec.vel.x += (rec.pos.x / d) * kick;
+      rec.vel.y += (rec.pos.y / d) * kick;
+      rec.vel.z += (rec.pos.z / d) * kick;
       const el = rec.el;
-      setTimeout(() => { nucleus3DRecords.delete(i); el.remove(); }, 420);
+      setTimeout(() => { nucleus3DRecords.delete(i); el.remove(); }, 660);
     }
   }
 
@@ -562,16 +577,14 @@ function step3DNucleus(now) {
   });
 
   // Camera-orbit rotation (viewing only -- not part of the liquid's own motion) gives the
-  // near/far depth cue. Speed and direction re-roll at random intervals so it occasionally
-  // reverses or changes pace instead of spinning at one constant rate forever.
-  if (now >= nucleus3DCameraRerollAt) {
-    const dir = Math.random() < 0.5 ? -1 : 1;
-    const period = NUCLEUS_3D_SPIN_PERIOD_MIN + Math.random() * (NUCLEUS_3D_SPIN_PERIOD_MAX - NUCLEUS_3D_SPIN_PERIOD_MIN);
-    nucleus3DCameraSpeed = dir * (Math.PI * 2) / period;
-    nucleus3DCameraRerollAt = now + NUCLEUS_3D_SPIN_REROLL_MIN + Math.random() * (NUCLEUS_3D_SPIN_REROLL_MAX - NUCLEUS_3D_SPIN_REROLL_MIN);
-  }
+  // near/far depth cue. Its direction only changes on an element-change spin-up (set in
+  // render3DNucleus); every frame it just relaxes back toward a slow baseline speed in that
+  // same direction, so a fast spin-up smoothly winds down to a gentle steady rotation.
   const camDt = Math.min(50, Math.max(0, now - nucleus3DCameraLastTick));
   nucleus3DCameraLastTick = now;
+  const baseSpeed = nucleus3DCameraDir * (Math.PI * 2) / NUCLEUS_3D_SPIN_BASE_PERIOD;
+  const decay = Math.pow(NUCLEUS_3D_SPIN_DECAY, camDt / 16.6667);
+  nucleus3DCameraSpeed = baseSpeed + (nucleus3DCameraSpeed - baseSpeed) * decay;
   nucleus3DCameraAngle += nucleus3DCameraSpeed * camDt;
   const angle = nucleus3DCameraAngle;
   const cosA = Math.cos(angle), sinA = Math.sin(angle);
@@ -586,7 +599,11 @@ function step3DNucleus(now) {
     const scale = lerp(0.8, 1.1, depthT);
     rec.depth = rz;
     rec.el.style.transform = `translate(${(CENTER + rx).toFixed(2)}px, ${(CENTER + ry).toFixed(2)}px) scale(${scale.toFixed(2)})`;
-    if (!rec.leaving) rec.el.style.opacity = lerp(0.75, 1, depthT).toFixed(2);
+    // Fade driven directly off elapsed time (not a CSS transition) so it stays in lockstep
+    // with the physics-driven position updates every frame.
+    rec.el.style.opacity = rec.leaving
+      ? Math.max(0, 1 - (now - rec.leaveStart) / 650).toFixed(2)
+      : lerp(0.75, 1, depthT).toFixed(2);
   });
 
   nucleus3DSortCounter++;
