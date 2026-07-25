@@ -412,22 +412,28 @@ function renderNucleus(protons, neutrons) {
 }
 
 // ---------- 3D nucleus: "liquid drop" physics -- a real nuclear model, not just a visual
-// trick -- nucleons are simulated as small particles that mutually repel at close range (so
-// they never fully overlap) while being loosely pulled toward the centre and softly
-// confined by a wall at the nucleus's physical radius (NUCLEUS_K*cbrt(total nucleon count),
-// the same law used everywhere else in the app for ring-gap placement etc). That combination
-// makes them constantly jostle and flow past each other like a liquid, while still cohering
-// into one roughly-spherical blob that grows correctly as nucleons are added -- no fixed
-// lattice, no rigid rotation of the whole cluster. A slow "camera" orbit around the cluster
-// (used only for projection, not part of the physics) gives the near/far depth cue: closer
-// nucleons render bigger/brighter, farther ones smaller/dimmer and are painted behind. A "2D
-// nucleus" toggle switches back to the flat packed-disc view. ----------
-const NUCLEUS_3D_SPIN_MS = 26000;  // period of the viewing-angle "camera" orbit
-const NUCLEUS_3D_REPEL_K = 0.055;  // how hard two overlapping nucleons push apart per frame
-const NUCLEUS_3D_WALL_K = 0.006;   // how hard the nucleus's outer radius pushes nucleons back in
-const NUCLEUS_3D_CENTER_K = 0.00035; // gentle constant pull toward the centre (stops the blob hollowing out)
-const NUCLEUS_3D_JITTER = 0.055;   // per-frame random thermal jiggle -- the "liquid flow"
-const NUCLEUS_3D_DAMPING = 0.86;   // velocity decay per ~16.7ms simulation step
+// trick -- nucleons are simulated as small particles with a Lennard-Jones-style pairwise
+// force: they repel steeply the moment they'd overlap, but mildly attract each other out to
+// a short range beyond that -- like real short-range surface tension between liquid
+// molecules. That's what actually pulls neighbours in touching-close with no gaps, rather
+// than just letting them float apart to fill whatever space is available. A soft wall at the
+// nucleus's physical radius (NUCLEUS_K*cbrt(total nucleon count), the same law used
+// elsewhere for ring-gap placement) plus a very weak centring pull just keep the whole blob
+// anchored in place -- they aren't what gives it its density. Random thermal jitter keeps
+// nucleons continuously swimming past and around each other. No fixed lattice, no rigid
+// rotation of the whole cluster. A slow "camera" orbit around the cluster (used only for
+// projection, not part of the physics) gives the near/far depth cue: closer nucleons render
+// bigger/brighter, farther ones smaller/dimmer and are painted behind. A "2D nucleus" toggle
+// switches back to the flat packed-disc view. ----------
+const NUCLEUS_3D_SPIN_MS = 26000;   // period of the viewing-angle "camera" orbit
+const NUCLEUS_3D_SPACING = 12.4;    // equilibrium centre-to-centre distance -- a touch under 2*bodyR so touching balls read as gap-free
+const NUCLEUS_3D_CUTOFF = NUCLEUS_3D_SPACING * 1.55; // beyond this, nucleons don't interact at all
+const NUCLEUS_3D_REPEL_K = 0.12;    // steep push-apart once closer than NUCLEUS_3D_SPACING
+const NUCLEUS_3D_ATTRACT_K = 0.02;  // mild pull-together for neighbours that have drifted apart (closes gaps)
+const NUCLEUS_3D_WALL_K = 0.006;    // how hard the nucleus's outer radius pushes nucleons back in (safety backstop, not the packing mechanism)
+const NUCLEUS_3D_CENTER_K = 0.00012; // very weak leash keeping the whole blob anchored at the centre
+const NUCLEUS_3D_JITTER = 0.05;     // per-frame random thermal jiggle -- the "liquid flow"
+const NUCLEUS_3D_DAMPING = 0.86;    // velocity decay per ~16.7ms simulation step
 let nucleusViewMode = '3d'; // '2d' | '3d' -- user preference, only matters while under BLOB_THRESHOLD
 let nucleus3DRecords = new Map(); // order-index -> { kind, el, pos:{x,y,z}, vel:{x,y,z}, leaving, depth }
 let nucleus3DTargetRadius = 30;
@@ -497,27 +503,32 @@ function step3DNucleus(now) {
   const damp = Math.pow(NUCLEUS_3D_DAMPING, dt);
   const live = [...nucleus3DRecords.values()].filter((r) => !r.leaving);
 
-  // Short-range pairwise repulsion: what actually gives the cluster its packed, non-
-  // overlapping "liquid" feel, and (combined with the wall below) its size.
+  // Short-range Lennard-Jones-style pairwise force: steep repulsion once overlapping, mild
+  // attraction out to NUCLEUS_3D_CUTOFF. This is what actually pulls neighbours in touching-
+  // close with no gaps (the attraction closes any drift apart), while the repulsion keeps
+  // them from fully overlapping -- a real liquid's cohesion, not just a non-overlap rule.
   for (let a = 0; a < live.length; a++) {
     const pa = live[a].pos;
     for (let b = a + 1; b < live.length; b++) {
       const pb = live[b].pos;
       const dx = pb.x - pa.x, dy = pb.y - pa.y, dz = pb.z - pa.z;
       const dist = Math.hypot(dx, dy, dz) || 0.001;
-      if (dist >= NUCLEON_SPACING) continue;
-      const push = (NUCLEON_SPACING - dist) / dist * NUCLEUS_3D_REPEL_K * dt;
-      const fx = dx * push, fy = dy * push, fz = dz * push;
-      live[a].vel.x -= fx; live[a].vel.y -= fy; live[a].vel.z -= fz;
-      live[b].vel.x += fx; live[b].vel.y += fy; live[b].vel.z += fz;
+      if (dist >= NUCLEUS_3D_CUTOFF) continue;
+      const f = dist < NUCLEUS_3D_SPACING
+        ? -NUCLEUS_3D_REPEL_K * (NUCLEUS_3D_SPACING - dist)
+        : NUCLEUS_3D_ATTRACT_K * (dist - NUCLEUS_3D_SPACING);
+      const k = (f / dist) * dt;
+      const fx = dx * k, fy = dy * k, fz = dz * k;
+      live[a].vel.x += fx; live[a].vel.y += fy; live[a].vel.z += fz;
+      live[b].vel.x -= fx; live[b].vel.y -= fy; live[b].vel.z -= fz;
     }
   }
 
   live.forEach((rec) => {
     const p = rec.pos, v = rec.vel;
     const r = Math.hypot(p.x, p.y, p.z) || 0.001;
-    // Soft wall at the nucleus's physical radius -- "gravity" holding the liquid together --
-    // plus a gentle constant pull toward the centre so the blob doesn't hollow out.
+    // Soft wall at the nucleus's physical radius, plus a very weak leash toward the centre --
+    // just an anchor/safety backstop, not what gives the cluster its density.
     if (r > nucleus3DTargetRadius) {
       const k = NUCLEUS_3D_WALL_K * (r - nucleus3DTargetRadius) * dt;
       v.x -= (p.x / r) * k; v.y -= (p.y / r) * k; v.z -= (p.z / r) * k;
