@@ -411,19 +411,21 @@ function renderNucleus(protons, neutrons) {
   return nucleusRadius;
 }
 
-// ---------- 3D nucleus: genuine depth via a shell-packed layout (concentric spherical
-// layers of touching nucleons, like a stack of cannonballs), rotated and projected every
-// frame in JS (no WebGL/3D engine -- just trig + direct SVG attrs, cheap enough for older
-// classroom machines). Near-side nucleons render bigger/brighter; far-side ones shrink, dim,
-// and are painted behind -- so they visibly rotate out of view, soccer-ball style. Nucleons
-// fully enclosed by outer layers can never be seen from any rotation angle, so only the
-// outermost layer (plus the one just inside it, so a still-filling outer layer never shows
-// gaps down to nothing) is actually rendered -- there's no separate "ball" shape at all, the
-// packed nucleon circles themselves form the visible sphere. A "2D nucleus" toggle switches
-// back to the flat packed-disc view. ----------
-const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+// ---------- 3D nucleus: genuine depth via an FCC (face-centred-cubic) lattice packing --
+// one of the two densest possible sphere-stacking arrangements, so touching nucleon "balls"
+// clump into a solid stack with no gaps (same spirit as the 2D hex packing, generalized to
+// 3D) -- rotated and projected every frame in JS (no WebGL/3D engine -- just trig + direct
+// SVG attrs, cheap enough for older classroom machines). Near-side nucleons render slightly
+// bigger/brighter; far-side ones shrink and dim a little and are painted behind -- so they
+// visibly rotate out of view -- without washing out the solid, evenly-lit look of a tightly
+// stacked cluster. Nucleons fully enclosed by outer layers can never be seen from any
+// rotation angle, so only those within one packing-layer of the cluster's outer radius are
+// actually rendered -- there's no separate "ball" shape at all, the packed nucleon circles
+// themselves form the visible sphere. A "2D nucleus" toggle switches back to the flat
+// packed-disc view. ----------
 const NUCLEUS_3D_SPIN_MS = 15000; // full revolution period
-const NUCLEUS_3D_SHELL_K = 14.5; // ~ shell surface area / hex-packed circle area, using NUCLEON_SPACING as shell spacing
+const NUCLEUS_3D_HALF_A = NUCLEON_SPACING / Math.SQRT2; // FCC half-lattice-parameter tuned so nearest-neighbour distance == NUCLEON_SPACING (touching, packed spheres)
+const NUCLEUS_3D_RENDER_SHELL = NUCLEON_SPACING * 1.6; // nucleons deeper than this below the cluster's outer radius are fully buried -- skip rendering them
 let nucleusViewMode = '3d'; // '2d' | '3d' -- user preference, only matters while under BLOB_THRESHOLD
 let nucleus3DRecords = new Map(); // order-index -> { kind, el, fromPoint, toPoint, animStart, duration, depth }
 let nucleus3DFrameHandle = null;
@@ -433,19 +435,6 @@ function easeOutBack(t) {
   const c1 = 1.70158, c3 = c1 + 1;
   const x = Math.min(1, Math.max(0, t));
   return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
-}
-
-// Evenly distributes n points on a unit sphere (golden-angle spiral) -- used to lay each
-// shell's own nucleons out over that shell's own sphere surface.
-function fibonacciSphereDirs(n) {
-  const dirs = [];
-  for (let i = 0; i < n; i++) {
-    const y = n === 1 ? 0 : 1 - (i / (n - 1)) * 2;
-    const ringR = Math.sqrt(Math.max(0, 1 - y * y));
-    const theta = i * GOLDEN_ANGLE;
-    dirs.push({ x: Math.cos(theta) * ringR, y, z: Math.sin(theta) * ringR });
-  }
-  return dirs;
 }
 
 function randomFarPoint3D(radius = 200) {
@@ -465,24 +454,24 @@ function nucleon3DInterpPoint(rec, now) {
   };
 }
 
-// How many nucleons fit as one touching-packed layer at shell k (k=0 is a single nucleon
-// at dead centre; k>=1 is a sphere of radius k*NUCLEON_SPACING).
-function shellCapacity3D(k) {
-  return k === 0 ? 1 : Math.max(1, Math.round(NUCLEUS_3D_SHELL_K * k * k));
-}
-
-// Fills concentric shells from the centre outward until all n nucleons are placed.
-function buildNucleusShells3D(n) {
-  const shells = [];
-  let idx = 0, k = 0;
-  while (idx < n) {
-    const cap = shellCapacity3D(k);
-    const take = Math.min(cap, n - idx);
-    shells.push({ k, startIdx: idx, count: take, radius: k * NUCLEON_SPACING });
-    idx += take;
-    k++;
+// The n lattice points closest to the centre, in a cubic sublattice (i+j+k even) that forms
+// an FCC packing -- gives a naturally solid, gap-free clump (same technique as the 2D hex
+// packing's "closest N lattice points", generalized to 3D).
+function closestFccPoints(n) {
+  if (n <= 0) return [];
+  const range = Math.ceil(Math.cbrt(n)) + 3;
+  const candidates = [];
+  for (let i = -range; i <= range; i++) {
+    for (let j = -range; j <= range; j++) {
+      for (let k = -range; k <= range; k++) {
+        if (((i + j + k) & 1) !== 0) continue;
+        const x = i * NUCLEUS_3D_HALF_A, y = j * NUCLEUS_3D_HALF_A, z = k * NUCLEUS_3D_HALF_A;
+        candidates.push({ x, y, z, dist: Math.hypot(x, y, z) });
+      }
+    }
   }
-  return shells;
+  candidates.sort((a, b) => a.dist - b.dist);
+  return candidates.slice(0, n);
 }
 
 function render3DNucleus(order, nucleusRadius) {
@@ -495,20 +484,12 @@ function render3DNucleus(order, nucleusRadius) {
     nucleusMode = 'dots3d';
   }
 
-  const shells = buildNucleusShells3D(order.length);
-  // Anything more than one shell inward from the surface is fully enclosed on every side --
-  // it can never be seen from any rotation angle, so skip rendering it entirely.
-  const visibleShells = shells.slice(-2);
-  const visStart = visibleShells.length ? visibleShells[0].startIdx : order.length;
-  const dirsByShellK = new Map();
-  visibleShells.forEach((s) => dirsByShellK.set(s.k, s.k === 0 ? [{ x: 0, y: 0, z: 0 }] : fibonacciSphereDirs(s.count)));
-
-  function targetPointFor(i) {
-    const shell = visibleShells.find((s) => i >= s.startIdx && i < s.startIdx + s.count);
-    if (!shell) return null;
-    const d = dirsByShellK.get(shell.k)[i - shell.startIdx];
-    return { x: d.x * shell.radius, y: d.y * shell.radius, z: d.z * shell.radius };
-  }
+  const pts = closestFccPoints(order.length);
+  const maxDist = pts.length ? pts[pts.length - 1].dist : 0;
+  // pts is sorted nearest-first, so the fully-buried (low-index, near-centre) points are
+  // skipped and only the outer shell (last entries, closest to maxDist) gets rendered.
+  let visStart = pts.findIndex((p) => p.dist >= maxDist - NUCLEUS_3D_RENDER_SHELL);
+  if (visStart === -1) visStart = 0;
 
   // Buried (newly-enclosed) or removed (count shrank) nucleons fade + shrink in place, then
   // get removed -- mirrors the 2D removal pattern.
@@ -524,7 +505,7 @@ function render3DNucleus(order, nucleusRadius) {
   }
 
   for (let i = visStart; i < order.length; i++) {
-    const targetPoint = targetPointFor(i);
+    const targetPoint = pts[i];
     let rec = nucleus3DRecords.get(i);
     if (!rec) {
       const wrap = svgEl('g', { class: `nucleon-3d ${order[i]}` });
@@ -563,8 +544,8 @@ function step3DNucleus(now) {
     const rz = -p.x * sinA + p.z * cosA;
     const ry = p.y;
     const depthT = clamp01((rz + maxR) / (2 * maxR));
-    const scale = lerp(0.55, 1.15, depthT);
-    const opacity = lerp(0.45, 1, depthT);
+    const scale = lerp(0.8, 1.1, depthT);
+    const opacity = lerp(0.75, 1, depthT);
     rec.depth = rz;
     rec.el.style.transform = `translate(${(CENTER + rx).toFixed(2)}px, ${(CENTER + ry).toFixed(2)}px) scale(${scale.toFixed(2)})`;
     rec.el.style.opacity = opacity.toFixed(2);
