@@ -365,7 +365,7 @@ function buildNucleonOrder(protons, neutrons) {
 
 function render2DNucleus(order, nucleusRadius) {
   if (nucleusMode !== 'dots2d') {
-    stop3DNucleus();
+    nucleus3DRecords.clear();
     nucleusGroup.innerHTML = '';
     nucleusMode = 'dots2d';
   }
@@ -379,7 +379,7 @@ function render2DNucleus(order, nucleusRadius) {
 
 function renderBlobNucleus(protons, neutrons, nucleusRadius) {
   if (nucleusMode !== 'blob') {
-    stop3DNucleus();
+    nucleus3DRecords.clear();
     nucleusGroup.innerHTML = '';
     nucleusGroup.classList.remove('spinning');
     nucleusGroup.appendChild(svgEl('circle', { class: 'nucleus-blob', cx: CENTER, cy: CENTER, r: 0 }));
@@ -411,17 +411,21 @@ function renderNucleus(protons, neutrons) {
   return nucleusRadius;
 }
 
-// ---------- 3D nucleus: genuine depth via a Fibonacci-sphere layout, rotated and
-// projected every frame in JS (no WebGL/3D engine -- just trig + direct SVG attrs, cheap
-// enough for older classroom machines). Near-side nucleons render bigger/brighter; far-side
-// ones shrink, dim, and are painted behind -- so they visibly rotate out of view, soccer-
-// ball style. A "2D nucleus" toggle switches back to the flat packed-disc view. ----------
+// ---------- 3D nucleus: genuine depth via a shell-packed layout (concentric spherical
+// layers of touching nucleons, like a stack of cannonballs), rotated and projected every
+// frame in JS (no WebGL/3D engine -- just trig + direct SVG attrs, cheap enough for older
+// classroom machines). Near-side nucleons render bigger/brighter; far-side ones shrink, dim,
+// and are painted behind -- so they visibly rotate out of view, soccer-ball style. Nucleons
+// fully enclosed by outer layers can never be seen from any rotation angle, so only the
+// outermost layer (plus the one just inside it, so a still-filling outer layer never shows
+// gaps down to nothing) is actually rendered -- there's no separate "ball" shape at all, the
+// packed nucleon circles themselves form the visible sphere. A "2D nucleus" toggle switches
+// back to the flat packed-disc view. ----------
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 const NUCLEUS_3D_SPIN_MS = 15000; // full revolution period
+const NUCLEUS_3D_SHELL_K = 14.5; // ~ shell surface area / hex-packed circle area, using NUCLEON_SPACING as shell spacing
 let nucleusViewMode = '3d'; // '2d' | '3d' -- user preference, only matters while under BLOB_THRESHOLD
-let nucleus3DRecords = [];  // { kind, el, fromPoint, toPoint, animStart, duration, depth }
-let nucleus3DVolumeEl = null;
-let nucleus3DRadius = { current: 0, target: 0, from: 0, animStart: 0 };
+let nucleus3DRecords = new Map(); // order-index -> { kind, el, fromPoint, toPoint, animStart, duration, depth }
 let nucleus3DFrameHandle = null;
 let nucleus3DSortCounter = 0;
 
@@ -431,8 +435,8 @@ function easeOutBack(t) {
   return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
 }
 
-// Evenly distributes n points on a unit sphere (golden-angle spiral) -- the "soccer ball
-// panel" layout the nucleus rotates through.
+// Evenly distributes n points on a unit sphere (golden-angle spiral) -- used to lay each
+// shell's own nucleons out over that shell's own sphere surface.
 function fibonacciSphereDirs(n) {
   const dirs = [];
   for (let i = 0; i < n; i++) {
@@ -461,9 +465,24 @@ function nucleon3DInterpPoint(rec, now) {
   };
 }
 
-function stop3DNucleus() {
-  nucleus3DRecords = [];
-  nucleus3DVolumeEl = null;
+// How many nucleons fit as one touching-packed layer at shell k (k=0 is a single nucleon
+// at dead centre; k>=1 is a sphere of radius k*NUCLEON_SPACING).
+function shellCapacity3D(k) {
+  return k === 0 ? 1 : Math.max(1, Math.round(NUCLEUS_3D_SHELL_K * k * k));
+}
+
+// Fills concentric shells from the centre outward until all n nucleons are placed.
+function buildNucleusShells3D(n) {
+  const shells = [];
+  let idx = 0, k = 0;
+  while (idx < n) {
+    const cap = shellCapacity3D(k);
+    const take = Math.min(cap, n - idx);
+    shells.push({ k, startIdx: idx, count: take, radius: k * NUCLEON_SPACING });
+    idx += take;
+    k++;
+  }
+  return shells;
 }
 
 function render3DNucleus(order, nucleusRadius) {
@@ -472,32 +491,41 @@ function render3DNucleus(order, nucleusRadius) {
   if (nucleusMode !== 'dots3d') {
     nucleusGroup.innerHTML = '';
     nucleusGroup.classList.remove('spinning');
-    nucleus3DRecords = [];
+    nucleus3DRecords.clear();
     nucleusMode = 'dots3d';
-    nucleus3DVolumeEl = svgEl('circle', { class: 'nucleus-volume', cx: CENTER, cy: CENTER, r: 0 });
-    nucleusGroup.appendChild(nucleus3DVolumeEl);
-    nucleus3DRadius = { current: 0, target: nucleusRadius, from: 0, animStart: now };
-  } else if (nucleus3DRadius.target !== nucleusRadius) {
-    nucleus3DRadius.from = nucleus3DRadius.current;
-    nucleus3DRadius.target = nucleusRadius;
-    nucleus3DRadius.animStart = now;
   }
 
-  const dirs = fibonacciSphereDirs(order.length);
+  const shells = buildNucleusShells3D(order.length);
+  // Anything more than one shell inward from the surface is fully enclosed on every side --
+  // it can never be seen from any rotation angle, so skip rendering it entirely.
+  const visibleShells = shells.slice(-2);
+  const visStart = visibleShells.length ? visibleShells[0].startIdx : order.length;
+  const dirsByShellK = new Map();
+  visibleShells.forEach((s) => dirsByShellK.set(s.k, s.k === 0 ? [{ x: 0, y: 0, z: 0 }] : fibonacciSphereDirs(s.count)));
 
-  // Extras fade + shrink outward in place, then remove -- mirrors the 2D removal pattern.
-  while (nucleus3DRecords.length > order.length) {
-    const rec = nucleus3DRecords.pop();
-    const el = rec.el;
-    el.style.transition = 'transform 400ms ease, opacity 400ms ease';
-    el.style.opacity = '0';
-    el.style.transform = `${el.style.transform} scale(0.15)`;
-    setTimeout(() => el.remove(), 420);
+  function targetPointFor(i) {
+    const shell = visibleShells.find((s) => i >= s.startIdx && i < s.startIdx + s.count);
+    if (!shell) return null;
+    const d = dirsByShellK.get(shell.k)[i - shell.startIdx];
+    return { x: d.x * shell.radius, y: d.y * shell.radius, z: d.z * shell.radius };
   }
 
-  for (let i = 0; i < order.length; i++) {
-    const targetPoint = { x: dirs[i].x * nucleusRadius, y: dirs[i].y * nucleusRadius, z: dirs[i].z * nucleusRadius };
-    let rec = nucleus3DRecords[i];
+  // Buried (newly-enclosed) or removed (count shrank) nucleons fade + shrink in place, then
+  // get removed -- mirrors the 2D removal pattern.
+  for (const [i, rec] of nucleus3DRecords) {
+    if (i >= order.length || i < visStart) {
+      nucleus3DRecords.delete(i);
+      const el = rec.el;
+      el.style.transition = 'transform 400ms ease, opacity 400ms ease';
+      el.style.opacity = '0';
+      el.style.transform = `${el.style.transform} scale(0.15)`;
+      setTimeout(() => el.remove(), 420);
+    }
+  }
+
+  for (let i = visStart; i < order.length; i++) {
+    const targetPoint = targetPointFor(i);
+    let rec = nucleus3DRecords.get(i);
     if (!rec) {
       const wrap = svgEl('g', { class: `nucleon-3d ${order[i]}` });
       const body = svgEl('circle', { class: 'nucleon-body', cx: 0, cy: 0, r: 6.5 });
@@ -509,7 +537,7 @@ function render3DNucleus(order, nucleusRadius) {
         toPoint: targetPoint,
         animStart: now, duration: 700, depth: 0,
       };
-      nucleus3DRecords[i] = rec;
+      nucleus3DRecords.set(i, rec);
     } else if (rec.toPoint.x !== targetPoint.x || rec.toPoint.y !== targetPoint.y || rec.toPoint.z !== targetPoint.z) {
       rec.fromPoint = nucleon3DInterpPoint(rec, now);
       rec.toPoint = targetPoint;
@@ -524,13 +552,10 @@ function render3DNucleus(order, nucleusRadius) {
 function step3DNucleus(now) {
   if (nucleusMode !== 'dots3d') { nucleus3DFrameHandle = null; return; }
 
-  const rT = Math.min(1, (now - nucleus3DRadius.animStart) / 500);
-  nucleus3DRadius.current = lerp(nucleus3DRadius.from, nucleus3DRadius.target, easeOutBack(rT));
-  if (nucleus3DVolumeEl) nucleus3DVolumeEl.setAttribute('r', Math.max(0, nucleus3DRadius.current * 0.9));
-
   const angle = (now / NUCLEUS_3D_SPIN_MS) * Math.PI * 2;
   const cosA = Math.cos(angle), sinA = Math.sin(angle);
-  const maxR = Math.max(nucleus3DRadius.current, 1);
+  let maxR = 1;
+  nucleus3DRecords.forEach((rec) => { maxR = Math.max(maxR, Math.hypot(rec.toPoint.x, rec.toPoint.y, rec.toPoint.z)); });
 
   nucleus3DRecords.forEach((rec) => {
     const p = nucleon3DInterpPoint(rec, now);
@@ -547,7 +572,7 @@ function step3DNucleus(now) {
 
   nucleus3DSortCounter++;
   if (nucleus3DSortCounter % 9 === 0) {
-    const sorted = [...nucleus3DRecords].sort((a, b) => a.depth - b.depth);
+    const sorted = [...nucleus3DRecords.values()].sort((a, b) => a.depth - b.depth);
     sorted.forEach((rec) => nucleusGroup.appendChild(rec.el));
   }
 

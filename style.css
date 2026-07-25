@@ -231,11 +231,6 @@ body {
 .nucleon-3d .nucleon-body { transform-box: fill-box; }
 .nucleon-3d.proton .nucleon-body { fill: url(#protonGradient); }
 .nucleon-3d.neutron .nucleon-body { fill: url(#neutronGradient); }
-.nucleus-volume {
-  fill: url(#blobGradient);
-  opacity: 0.22;
-  pointer-events: none;
-}
 
 /* ---------- Info panel (flip card) ---------- */
 .info-panel {
