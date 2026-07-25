@@ -421,12 +421,17 @@ function renderNucleus(protons, neutrons) {
 // elsewhere for ring-gap placement) plus a firm centring pull quickly draw newly-arrived or
 // scattered nucleons back into a single ball, rather than leaving them drifting for ages.
 // Random thermal jitter keeps nucleons continuously swimming past and swapping places with
-// each other. No fixed lattice, no rigid rotation of the whole cluster. A slow "camera" orbit
-// around the cluster (used only for projection, not part of the physics) gives the near/far
-// depth cue: closer nucleons render bigger/brighter, farther ones smaller/dimmer and are
-// painted behind. New nucleons shoot in from well outside the visible diagram. A "2D
-// nucleus" toggle switches back to the flat packed-disc view. ----------
-const NUCLEUS_3D_SPIN_MS = 26000;   // period of the viewing-angle "camera" orbit
+// each other. No fixed lattice, no rigid rotation of the whole cluster. A brisk "camera"
+// orbit around the cluster (used only for projection, not part of the physics) gives the
+// near/far depth cue: closer nucleons render bigger/brighter, farther ones smaller/dimmer
+// and are painted behind. Its speed and direction re-roll at random intervals, so it
+// occasionally reverses or speeds up/slows down rather than spinning at one constant rate.
+// New nucleons shoot in from well outside the visible diagram. A "2D nucleus" toggle
+// switches back to the flat packed-disc view. ----------
+const NUCLEUS_3D_SPIN_PERIOD_MIN = 3200;  // fastest a camera-orbit revolution can be (ms)
+const NUCLEUS_3D_SPIN_PERIOD_MAX = 6000;  // slowest a camera-orbit revolution can be (ms)
+const NUCLEUS_3D_SPIN_REROLL_MIN = 2500;  // how soon the camera orbit can next change speed/direction (ms)
+const NUCLEUS_3D_SPIN_REROLL_MAX = 5500;
 const NUCLEUS_3D_SPACING = 12.4;    // equilibrium centre-to-centre distance -- a touch under 2*bodyR so touching balls read as gap-free
 const NUCLEUS_3D_CUTOFF = NUCLEUS_3D_SPACING * 1.55; // beyond this, nucleons don't interact at all
 const NUCLEUS_3D_REPEL_K = 0.16;    // steep push-apart once closer than NUCLEUS_3D_SPACING
@@ -441,6 +446,10 @@ let nucleus3DTargetRadius = 30;
 let nucleus3DFrameHandle = null;
 let nucleus3DSortCounter = 0;
 let nucleus3DLastTick = 0;
+let nucleus3DCameraAngle = 0;
+let nucleus3DCameraSpeed = 0;    // radians/ms, signed (direction)
+let nucleus3DCameraRerollAt = 0;
+let nucleus3DCameraLastTick = 0;
 
 function randomFarPoint3D(radius = 420) {
   const u = Math.random() * 2 - 1;
@@ -458,6 +467,8 @@ function render3DNucleus(order, nucleusRadius) {
     nucleus3DRecords.clear();
     nucleusMode = 'dots3d';
     nucleus3DLastTick = performance.now();
+    nucleus3DCameraLastTick = nucleus3DLastTick;
+    nucleus3DCameraRerollAt = 0; // force an immediate speed/direction roll on the first frame
   }
 
   // Extras (count shrank) get an outward "pop" impulse, fade, then leave the simulation.
@@ -550,9 +561,19 @@ function step3DNucleus(now) {
     rec.pos.x += rec.vel.x * dt; rec.pos.y += rec.vel.y * dt; rec.pos.z += rec.vel.z * dt;
   });
 
-  // Project: a slow camera-orbit rotation (viewing only -- not part of the liquid's own
-  // motion) gives the near/far depth cue.
-  const angle = (now / NUCLEUS_3D_SPIN_MS) * Math.PI * 2;
+  // Camera-orbit rotation (viewing only -- not part of the liquid's own motion) gives the
+  // near/far depth cue. Speed and direction re-roll at random intervals so it occasionally
+  // reverses or changes pace instead of spinning at one constant rate forever.
+  if (now >= nucleus3DCameraRerollAt) {
+    const dir = Math.random() < 0.5 ? -1 : 1;
+    const period = NUCLEUS_3D_SPIN_PERIOD_MIN + Math.random() * (NUCLEUS_3D_SPIN_PERIOD_MAX - NUCLEUS_3D_SPIN_PERIOD_MIN);
+    nucleus3DCameraSpeed = dir * (Math.PI * 2) / period;
+    nucleus3DCameraRerollAt = now + NUCLEUS_3D_SPIN_REROLL_MIN + Math.random() * (NUCLEUS_3D_SPIN_REROLL_MAX - NUCLEUS_3D_SPIN_REROLL_MIN);
+  }
+  const camDt = Math.min(50, Math.max(0, now - nucleus3DCameraLastTick));
+  nucleus3DCameraLastTick = now;
+  nucleus3DCameraAngle += nucleus3DCameraSpeed * camDt;
+  const angle = nucleus3DCameraAngle;
   const cosA = Math.cos(angle), sinA = Math.sin(angle);
   const maxR = Math.max(nucleus3DTargetRadius, 1);
 
