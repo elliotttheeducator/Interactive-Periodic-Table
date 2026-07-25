@@ -429,9 +429,11 @@ function renderNucleus(protons, neutrons) {
 // of possible directions. Adding or removing nucleons (moving to a different element) rolls
 // a fresh random axis and kicks the spin up to a fast rate, which then decays back down to a
 // slow steady rotation over the next few seconds -- the axis only ever changes on an element
-// change, never mid-idle. New nucleons shoot in from well outside the visible diagram;
-// removed ones shoot back out the same way. A "2D nucleus" toggle switches back to the flat
-// packed-disc view. ----------
+// change, never mid-idle. On growth, that spin-up is held back a beat so it reads as caused
+// by the new nucleons actually arriving, rather than firing the instant the move happens.
+// New nucleons shoot in from well outside the visible diagram, then shed their entrance speed
+// faster than usual for a moment while they settle into the pack; removed ones shoot back out
+// the same way. A "2D nucleus" toggle switches back to the flat packed-disc view. ----------
 const NUCLEUS_3D_SPIN_BASE_PERIOD = 9000;  // slow resting rotation it decays down to (ms per revolution)
 const NUCLEUS_3D_SPIN_BOOST_PERIOD = 1900; // fast rotation right after an element change (ms per revolution)
 const NUCLEUS_3D_SPIN_DECAY = 0.988;       // per-~16.7ms-step pull of the boosted speed back toward baseline
@@ -443,6 +445,9 @@ const NUCLEUS_3D_WALL_K = 0.006;    // how hard the nucleus's outer radius pushe
 const NUCLEUS_3D_CENTER_K = 0.0022; // pull toward the centre -- strong enough to pull a freshly-arrived scatter of nucleons into a ball quickly
 const NUCLEUS_3D_JITTER = 0.14;     // per-frame random thermal jiggle -- nucleons visibly swap places and swim around each other
 const NUCLEUS_3D_DAMPING = 0.92;    // velocity decay per ~16.7ms simulation step -- looser than before so that jiggle keeps things moving
+const NUCLEUS_3D_JOIN_DAMPING = 0.78; // heavier damping applied only while a nucleon is still settling in after joining
+const NUCLEUS_3D_JOIN_SETTLE_MS = 900; // how long that heavier damping lasts after a nucleon joins
+const NUCLEUS_3D_SPIN_DELAY_MS = 300; // delay before a growth spin-up kicks in, so it reads as caused by the new nucleons' arrival
 let nucleusViewMode = '3d'; // '2d' | '3d' -- user preference, only matters while under BLOB_THRESHOLD
 let nucleus3DRecords = new Map(); // order-index -> { kind, el, pos:{x,y,z}, vel:{x,y,z}, leaving, depth }
 let nucleus3DTargetRadius = 30;
@@ -454,6 +459,7 @@ let nucleus3DCameraSpeed = 0;    // radians/ms, always positive -- current (poss
 let nucleus3DSpinAxis = { x: 0, y: 1, z: 0 }; // unit vector -- only re-rolled on an element change
 let nucleus3DCameraLastTick = 0;
 let nucleus3DPrevTotal = -1;     // last seen nucleon count, to detect an element change
+let nucleus3DSpinDelayTimer = null; // pending delayed spin-up from a growth event
 
 // A uniformly-random point on the unit sphere -- used both as a random "shoot in/out from
 // off-screen" direction and as a random 3D spin axis (so rotation can tumble toward any of
@@ -497,15 +503,27 @@ function render3DNucleus(order, nucleusRadius) {
     nucleus3DSpinAxis = randomUnitVector3();
     nucleus3DCameraSpeed = (Math.PI * 2) / NUCLEUS_3D_SPIN_BASE_PERIOD;
     nucleus3DPrevTotal = -1; // don't treat entering 3D mode itself as an "element changed" spin-up
+    if (nucleus3DSpinDelayTimer) { clearTimeout(nucleus3DSpinDelayTimer); nucleus3DSpinDelayTimer = null; }
   }
 
   // A changed nucleon count means the element changed -- re-roll the spin axis (any of the
   // full 360 degrees of directions, not just left/right) and kick the camera orbit up to a
-  // fast spin, which then decays back down to a slow steady rotation
-  // (see step3DNucleus). The axis never changes except on this event.
+  // fast spin, which then decays back down to a slow steady rotation (see step3DNucleus).
+  // The axis never changes except on this event. Growth delays the kick slightly so it reads
+  // as caused by the new nucleons actually arriving, rather than firing the instant the move
+  // happens; shrinking (nothing to wait for) kicks immediately.
   if (nucleus3DPrevTotal !== -1 && nucleus3DPrevTotal !== order.length) {
-    nucleus3DSpinAxis = randomUnitVector3();
-    nucleus3DCameraSpeed = (Math.PI * 2) / NUCLEUS_3D_SPIN_BOOST_PERIOD;
+    if (nucleus3DSpinDelayTimer) { clearTimeout(nucleus3DSpinDelayTimer); nucleus3DSpinDelayTimer = null; }
+    if (order.length > nucleus3DPrevTotal) {
+      nucleus3DSpinDelayTimer = setTimeout(() => {
+        nucleus3DSpinAxis = randomUnitVector3();
+        nucleus3DCameraSpeed = (Math.PI * 2) / NUCLEUS_3D_SPIN_BOOST_PERIOD;
+        nucleus3DSpinDelayTimer = null;
+      }, NUCLEUS_3D_SPIN_DELAY_MS);
+    } else {
+      nucleus3DSpinAxis = randomUnitVector3();
+      nucleus3DCameraSpeed = (Math.PI * 2) / NUCLEUS_3D_SPIN_BOOST_PERIOD;
+    }
   }
   nucleus3DPrevTotal = order.length;
 
@@ -522,14 +540,22 @@ function render3DNucleus(order, nucleusRadius) {
       rec.vel.y += (rec.pos.y / d) * kick;
       rec.vel.z += (rec.pos.z / d) * kick;
       const el = rec.el;
-      setTimeout(() => { nucleus3DRecords.delete(i); el.remove(); }, 660);
+      // Only remove this exact record from the map -- if a rapid re-grow reclaims index i
+      // before this timer fires (see below), the map entry there is a different object by
+      // then, and this must not delete it out from under the nucleon that replaced it.
+      setTimeout(() => { if (nucleus3DRecords.get(i) === rec) nucleus3DRecords.delete(i); el.remove(); }, 660);
     }
   }
 
   // New nucleons shoot in from a random point outside the nucleus with an inward kick, then
-  // jostle into place under the same forces as everyone else already in the liquid.
+  // jostle into place under the same forces as everyone else already in the liquid. A rapid
+  // regrowth can land on an index that's still fading out from a just-as-rapid shrink; that
+  // stale, still-leaving slot is reclaimed immediately rather than treated as occupied, so
+  // growth never silently comes up short a nucleon.
   for (let i = 0; i < order.length; i++) {
-    if (nucleus3DRecords.has(i)) continue;
+    const existing = nucleus3DRecords.get(i);
+    if (existing && !existing.leaving) continue;
+    if (existing) existing.el.remove();
     const wrap = svgEl('g', { class: `nucleon-3d ${order[i]}` });
     const body = svgEl('circle', { class: 'nucleon-body', cx: 0, cy: 0, r: 6.5 });
     wrap.appendChild(body);
@@ -539,7 +565,7 @@ function render3DNucleus(order, nucleusRadius) {
     const speed = 13;
     nucleus3DRecords.set(i, {
       kind: order[i], el: wrap, leaving: false, depth: 0,
-      pos: far,
+      pos: far, joinedAt: performance.now(),
       vel: { x: -far.x / d * speed, y: -far.y / d * speed, z: -far.z / d * speed },
     });
   }
@@ -552,7 +578,6 @@ function step3DNucleus(now) {
 
   const dt = Math.min(2, Math.max(0, now - nucleus3DLastTick) / 16.6667) || 1;
   nucleus3DLastTick = now;
-  const damp = Math.pow(NUCLEUS_3D_DAMPING, dt);
   const live = [...nucleus3DRecords.values()].filter((r) => !r.leaving);
 
   // Short-range Lennard-Jones-style pairwise force: steep repulsion once overlapping, mild
@@ -591,6 +616,10 @@ function step3DNucleus(now) {
     v.y += (Math.random() - 0.5) * NUCLEUS_3D_JITTER * dt;
     v.z += (Math.random() - 0.5) * NUCLEUS_3D_JITTER * dt;
 
+    // Nucleons still settling in after just joining shed momentum faster, so they don't carry
+    // their entrance speed on into the pack and keep jostling everyone else around.
+    const stillSettling = rec.joinedAt !== undefined && (now - rec.joinedAt) < NUCLEUS_3D_JOIN_SETTLE_MS;
+    const damp = Math.pow(stillSettling ? NUCLEUS_3D_JOIN_DAMPING : NUCLEUS_3D_DAMPING, dt);
     v.x *= damp; v.y *= damp; v.z *= damp;
     p.x += v.x * dt; p.y += v.y * dt; p.z += v.z * dt;
   });
