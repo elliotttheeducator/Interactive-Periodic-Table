@@ -429,11 +429,17 @@ function renderNucleus(protons, neutrons) {
 // of possible directions. Adding or removing nucleons (moving to a different element) rolls
 // a fresh random axis and kicks the spin up to a fast rate, which then decays back down to a
 // slow steady rotation over the next few seconds -- the axis only ever changes on an element
-// change, never mid-idle. On growth, that spin-up is held back a beat so it reads as caused
-// by the new nucleons actually arriving, rather than firing the instant the move happens.
-// New nucleons shoot in from well outside the visible diagram, then shed their entrance speed
-// faster than usual for a moment while they settle into the pack; removed ones shoot back out
-// the same way. A "2D nucleus" toggle switches back to the flat packed-disc view. ----------
+// change, never mid-idle. Rather than resetting to that new axis outright (which would make
+// the whole cluster visibly snap to a different orientation the instant it happened), the
+// current view orientation is tracked as an accumulating rotation matrix that each frame's
+// small rotation is composed onto -- so a new axis just changes which way it turns next,
+// with no discontinuity in what's on screen. On growth, the kick itself is held back to land
+// right as the new nucleons actually reach the cluster (empirically ~1.15s given their spawn
+// distance and deceleration), so it reads as caused by their arrival rather than firing the
+// instant the move happens. New nucleons shoot in from well outside the visible diagram, then
+// shed their entrance speed faster than usual for a moment while they settle into the pack;
+// removed ones shoot back out the same way. A "2D nucleus" toggle switches back to the flat
+// packed-disc view. ----------
 const NUCLEUS_3D_SPIN_BASE_PERIOD = 9000;  // slow resting rotation it decays down to (ms per revolution)
 const NUCLEUS_3D_SPIN_BOOST_PERIOD = 1900; // fast rotation right after an element change (ms per revolution)
 const NUCLEUS_3D_SPIN_DECAY = 0.988;       // per-~16.7ms-step pull of the boosted speed back toward baseline
@@ -447,14 +453,17 @@ const NUCLEUS_3D_JITTER = 0.14;     // per-frame random thermal jiggle -- nucleo
 const NUCLEUS_3D_DAMPING = 0.92;    // velocity decay per ~16.7ms simulation step -- looser than before so that jiggle keeps things moving
 const NUCLEUS_3D_JOIN_DAMPING = 0.78; // heavier damping applied only while a nucleon is still settling in after joining
 const NUCLEUS_3D_JOIN_SETTLE_MS = 900; // how long that heavier damping lasts after a nucleon joins
-const NUCLEUS_3D_SPIN_DELAY_MS = 300; // delay before a growth spin-up kicks in, so it reads as caused by the new nucleons' arrival
+// Measured (via instrumented playtesting) time for a nucleon spawned at randomFarPoint3D's
+// default distance to actually reach the cluster under the join-damped flight above --
+// that's when the spin-up should land, so it reads as the arrival's impact, not a delay.
+const NUCLEUS_3D_SPIN_DELAY_MS = 1150;
 let nucleusViewMode = '3d'; // '2d' | '3d' -- user preference, only matters while under BLOB_THRESHOLD
 let nucleus3DRecords = new Map(); // order-index -> { kind, el, pos:{x,y,z}, vel:{x,y,z}, leaving, depth }
 let nucleus3DTargetRadius = 30;
 let nucleus3DFrameHandle = null;
 let nucleus3DSortCounter = 0;
 let nucleus3DLastTick = 0;
-let nucleus3DCameraAngle = 0;
+let nucleus3DOrientation = [1, 0, 0, 0, 1, 0, 0, 0, 1]; // accumulated 3x3 rotation matrix (row-major), the current view
 let nucleus3DCameraSpeed = 0;    // radians/ms, always positive -- current (possibly boosted) angular speed
 let nucleus3DSpinAxis = { x: 0, y: 1, z: 0 }; // unit vector -- only re-rolled on an element change
 let nucleus3DCameraLastTick = 0;
@@ -476,18 +485,48 @@ function randomFarPoint3D(radius = 420) {
   return { x: v.x * radius, y: v.y * radius, z: v.z * radius };
 }
 
-// Rotates point p by angle (given as cos/sin) around the unit axis k, via Rodrigues' formula.
-function rotateAroundAxis(p, k, cosT, sinT) {
-  const dot = p.x * k.x + p.y * k.y + p.z * k.z;
-  const cx = k.y * p.z - k.z * p.y;
-  const cy = k.z * p.x - k.x * p.z;
-  const cz = k.x * p.y - k.y * p.x;
+// Builds the 3x3 rotation matrix (row-major) for angle (given as cos/sin) around unit axis k.
+function axisAngleMatrix(k, cosT, sinT) {
   const oneMinusCos = 1 - cosT;
+  return [
+    cosT + k.x * k.x * oneMinusCos,        k.x * k.y * oneMinusCos - k.z * sinT,   k.x * k.z * oneMinusCos + k.y * sinT,
+    k.y * k.x * oneMinusCos + k.z * sinT,  cosT + k.y * k.y * oneMinusCos,         k.y * k.z * oneMinusCos - k.x * sinT,
+    k.z * k.x * oneMinusCos - k.y * sinT,  k.z * k.y * oneMinusCos + k.x * sinT,   cosT + k.z * k.z * oneMinusCos,
+  ];
+}
+
+function multiplyMatrix3(a, b) {
+  const r = new Array(9);
+  for (let row = 0; row < 3; row++) {
+    for (let col = 0; col < 3; col++) {
+      r[row * 3 + col] = a[row * 3] * b[col] + a[row * 3 + 1] * b[3 + col] + a[row * 3 + 2] * b[6 + col];
+    }
+  }
+  return r;
+}
+
+function applyMatrix3(m, p) {
   return {
-    x: p.x * cosT + cx * sinT + k.x * dot * oneMinusCos,
-    y: p.y * cosT + cy * sinT + k.y * dot * oneMinusCos,
-    z: p.z * cosT + cz * sinT + k.z * dot * oneMinusCos,
+    x: m[0] * p.x + m[1] * p.y + m[2] * p.z,
+    y: m[3] * p.x + m[4] * p.y + m[5] * p.z,
+    z: m[6] * p.x + m[7] * p.y + m[8] * p.z,
   };
+}
+
+// Re-orthonormalizes a rotation matrix (Gram-Schmidt) to correct the tiny floating-point
+// drift that composing thousands of small rotations onto it would otherwise accumulate over
+// a long-running session.
+function orthonormalizeMatrix3(m) {
+  let r0 = { x: m[0], y: m[1], z: m[2] };
+  let r1 = { x: m[3], y: m[4], z: m[5] };
+  const len0 = Math.hypot(r0.x, r0.y, r0.z) || 1;
+  r0 = { x: r0.x / len0, y: r0.y / len0, z: r0.z / len0 };
+  const dot01 = r1.x * r0.x + r1.y * r0.y + r1.z * r0.z;
+  r1 = { x: r1.x - dot01 * r0.x, y: r1.y - dot01 * r0.y, z: r1.z - dot01 * r0.z };
+  const len1 = Math.hypot(r1.x, r1.y, r1.z) || 1;
+  r1 = { x: r1.x / len1, y: r1.y / len1, z: r1.z / len1 };
+  const r2 = { x: r0.y * r1.z - r0.z * r1.y, y: r0.z * r1.x - r0.x * r1.z, z: r0.x * r1.y - r0.y * r1.x };
+  return [r0.x, r0.y, r0.z, r1.x, r1.y, r1.z, r2.x, r2.y, r2.z];
 }
 
 function render3DNucleus(order, nucleusRadius) {
@@ -500,6 +539,7 @@ function render3DNucleus(order, nucleusRadius) {
     nucleusMode = 'dots3d';
     nucleus3DLastTick = performance.now();
     nucleus3DCameraLastTick = nucleus3DLastTick;
+    nucleus3DOrientation = [1, 0, 0, 0, 1, 0, 0, 0, 1];
     nucleus3DSpinAxis = randomUnitVector3();
     nucleus3DCameraSpeed = (Math.PI * 2) / NUCLEUS_3D_SPIN_BASE_PERIOD;
     nucleus3DPrevTotal = -1; // don't treat entering 3D mode itself as an "element changed" spin-up
@@ -641,12 +681,20 @@ function step3DNucleus(now) {
   const baseSpeed = (Math.PI * 2) / NUCLEUS_3D_SPIN_BASE_PERIOD;
   const decay = Math.pow(NUCLEUS_3D_SPIN_DECAY, camDt / 16.6667);
   nucleus3DCameraSpeed = baseSpeed + (nucleus3DCameraSpeed - baseSpeed) * decay;
-  nucleus3DCameraAngle += nucleus3DCameraSpeed * camDt;
-  const cosA = Math.cos(nucleus3DCameraAngle), sinA = Math.sin(nucleus3DCameraAngle);
+  // Compose this frame's small rotation onto the accumulated orientation rather than
+  // recomputing a total angle around whatever the current axis happens to be -- so a spin-up
+  // changing the axis only changes which way it turns *next*, with no jump in what's already
+  // on screen.
+  const deltaAngle = nucleus3DCameraSpeed * camDt;
+  const deltaMatrix = axisAngleMatrix(nucleus3DSpinAxis, Math.cos(deltaAngle), Math.sin(deltaAngle));
+  nucleus3DOrientation = multiplyMatrix3(deltaMatrix, nucleus3DOrientation);
+  nucleus3DSortCounter++;
+  if (nucleus3DSortCounter % 300 === 0) nucleus3DOrientation = orthonormalizeMatrix3(nucleus3DOrientation);
   const maxR = Math.max(nucleus3DTargetRadius, 1);
+  const shouldResort = nucleus3DSortCounter % 6 === 0;
 
   nucleus3DRecords.forEach((rec) => {
-    const rp = rotateAroundAxis(rec.pos, nucleus3DSpinAxis, cosA, sinA);
+    const rp = applyMatrix3(nucleus3DOrientation, rec.pos);
     const rx = rp.x, ry = rp.y, rz = rp.z;
     const depthT = clamp01((rz + maxR) / (2 * maxR));
     const scale = lerp(0.8, 1.1, depthT);
@@ -659,8 +707,7 @@ function step3DNucleus(now) {
       : lerp(0.75, 1, depthT).toFixed(2);
   });
 
-  nucleus3DSortCounter++;
-  if (nucleus3DSortCounter % 6 === 0) {
+  if (shouldResort) {
     const sorted = [...nucleus3DRecords.values()].sort((a, b) => a.depth - b.depth);
     sorted.forEach((rec) => nucleusGroup.appendChild(rec.el));
   }
