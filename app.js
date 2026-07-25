@@ -411,31 +411,29 @@ function renderNucleus(protons, neutrons) {
   return nucleusRadius;
 }
 
-// ---------- 3D nucleus: genuine depth via an FCC (face-centred-cubic) lattice packing --
-// one of the two densest possible sphere-stacking arrangements, so touching nucleon "balls"
-// clump into a solid stack with no gaps (same spirit as the 2D hex packing, generalized to
-// 3D) -- rotated and projected every frame in JS (no WebGL/3D engine -- just trig + direct
-// SVG attrs, cheap enough for older classroom machines). Near-side nucleons render slightly
-// bigger/brighter; far-side ones shrink and dim a little and are painted behind -- so they
-// visibly rotate out of view -- without washing out the solid, evenly-lit look of a tightly
-// stacked cluster. Nucleons fully enclosed by outer layers can never be seen from any
-// rotation angle, so only those within one packing-layer of the cluster's outer radius are
-// actually rendered -- there's no separate "ball" shape at all, the packed nucleon circles
-// themselves form the visible sphere. A "2D nucleus" toggle switches back to the flat
-// packed-disc view. ----------
-const NUCLEUS_3D_SPIN_MS = 15000; // full revolution period
-const NUCLEUS_3D_HALF_A = NUCLEON_SPACING / Math.SQRT2; // FCC half-lattice-parameter tuned so nearest-neighbour distance == NUCLEON_SPACING (touching, packed spheres)
-const NUCLEUS_3D_RENDER_SHELL = NUCLEON_SPACING * 1.6; // nucleons deeper than this below the cluster's outer radius are fully buried -- skip rendering them
+// ---------- 3D nucleus: "liquid drop" physics -- a real nuclear model, not just a visual
+// trick -- nucleons are simulated as small particles that mutually repel at close range (so
+// they never fully overlap) while being loosely pulled toward the centre and softly
+// confined by a wall at the nucleus's physical radius (NUCLEUS_K*cbrt(total nucleon count),
+// the same law used everywhere else in the app for ring-gap placement etc). That combination
+// makes them constantly jostle and flow past each other like a liquid, while still cohering
+// into one roughly-spherical blob that grows correctly as nucleons are added -- no fixed
+// lattice, no rigid rotation of the whole cluster. A slow "camera" orbit around the cluster
+// (used only for projection, not part of the physics) gives the near/far depth cue: closer
+// nucleons render bigger/brighter, farther ones smaller/dimmer and are painted behind. A "2D
+// nucleus" toggle switches back to the flat packed-disc view. ----------
+const NUCLEUS_3D_SPIN_MS = 26000;  // period of the viewing-angle "camera" orbit
+const NUCLEUS_3D_REPEL_K = 0.055;  // how hard two overlapping nucleons push apart per frame
+const NUCLEUS_3D_WALL_K = 0.006;   // how hard the nucleus's outer radius pushes nucleons back in
+const NUCLEUS_3D_CENTER_K = 0.00035; // gentle constant pull toward the centre (stops the blob hollowing out)
+const NUCLEUS_3D_JITTER = 0.055;   // per-frame random thermal jiggle -- the "liquid flow"
+const NUCLEUS_3D_DAMPING = 0.86;   // velocity decay per ~16.7ms simulation step
 let nucleusViewMode = '3d'; // '2d' | '3d' -- user preference, only matters while under BLOB_THRESHOLD
-let nucleus3DRecords = new Map(); // order-index -> { kind, el, fromPoint, toPoint, animStart, duration, depth }
+let nucleus3DRecords = new Map(); // order-index -> { kind, el, pos:{x,y,z}, vel:{x,y,z}, leaving, depth }
+let nucleus3DTargetRadius = 30;
 let nucleus3DFrameHandle = null;
 let nucleus3DSortCounter = 0;
-
-function easeOutBack(t) {
-  const c1 = 1.70158, c3 = c1 + 1;
-  const x = Math.min(1, Math.max(0, t));
-  return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
-}
+let nucleus3DLastTick = 0;
 
 function randomFarPoint3D(radius = 200) {
   const u = Math.random() * 2 - 1;
@@ -444,87 +442,48 @@ function randomFarPoint3D(radius = 200) {
   return { x: radius * ringR * Math.cos(t), y: radius * u, z: radius * ringR * Math.sin(t) };
 }
 
-function nucleon3DInterpPoint(rec, now) {
-  const t = Math.min(1, (now - rec.animStart) / rec.duration);
-  const eased = easeOutBack(t);
-  return {
-    x: lerp(rec.fromPoint.x, rec.toPoint.x, eased),
-    y: lerp(rec.fromPoint.y, rec.toPoint.y, eased),
-    z: lerp(rec.fromPoint.z, rec.toPoint.z, eased),
-  };
-}
-
-// The n lattice points closest to the centre, in a cubic sublattice (i+j+k even) that forms
-// an FCC packing -- gives a naturally solid, gap-free clump (same technique as the 2D hex
-// packing's "closest N lattice points", generalized to 3D).
-function closestFccPoints(n) {
-  if (n <= 0) return [];
-  const range = Math.ceil(Math.cbrt(n)) + 3;
-  const candidates = [];
-  for (let i = -range; i <= range; i++) {
-    for (let j = -range; j <= range; j++) {
-      for (let k = -range; k <= range; k++) {
-        if (((i + j + k) & 1) !== 0) continue;
-        const x = i * NUCLEUS_3D_HALF_A, y = j * NUCLEUS_3D_HALF_A, z = k * NUCLEUS_3D_HALF_A;
-        candidates.push({ x, y, z, dist: Math.hypot(x, y, z) });
-      }
-    }
-  }
-  candidates.sort((a, b) => a.dist - b.dist);
-  return candidates.slice(0, n);
-}
-
 function render3DNucleus(order, nucleusRadius) {
-  const now = performance.now();
+  nucleus3DTargetRadius = nucleusRadius;
 
   if (nucleusMode !== 'dots3d') {
     nucleusGroup.innerHTML = '';
     nucleusGroup.classList.remove('spinning');
     nucleus3DRecords.clear();
     nucleusMode = 'dots3d';
+    nucleus3DLastTick = performance.now();
   }
 
-  const pts = closestFccPoints(order.length);
-  const maxDist = pts.length ? pts[pts.length - 1].dist : 0;
-  // pts is sorted nearest-first, so the fully-buried (low-index, near-centre) points are
-  // skipped and only the outer shell (last entries, closest to maxDist) gets rendered.
-  let visStart = pts.findIndex((p) => p.dist >= maxDist - NUCLEUS_3D_RENDER_SHELL);
-  if (visStart === -1) visStart = 0;
-
-  // Buried (newly-enclosed) or removed (count shrank) nucleons fade + shrink in place, then
-  // get removed -- mirrors the 2D removal pattern.
+  // Extras (count shrank) get an outward "pop" impulse, fade, then leave the simulation.
   for (const [i, rec] of nucleus3DRecords) {
-    if (i >= order.length || i < visStart) {
-      nucleus3DRecords.delete(i);
+    if (i >= order.length && !rec.leaving) {
+      rec.leaving = true;
+      const d = Math.max(1, Math.hypot(rec.pos.x, rec.pos.y, rec.pos.z));
+      rec.vel.x += (rec.pos.x / d) * 5;
+      rec.vel.y += (rec.pos.y / d) * 5;
+      rec.vel.z += (rec.pos.z / d) * 5;
+      rec.el.style.transition = 'opacity 400ms ease';
+      rec.el.style.opacity = '0';
       const el = rec.el;
-      el.style.transition = 'transform 400ms ease, opacity 400ms ease';
-      el.style.opacity = '0';
-      el.style.transform = `${el.style.transform} scale(0.15)`;
-      setTimeout(() => el.remove(), 420);
+      setTimeout(() => { nucleus3DRecords.delete(i); el.remove(); }, 420);
     }
   }
 
-  for (let i = visStart; i < order.length; i++) {
-    const targetPoint = pts[i];
-    let rec = nucleus3DRecords.get(i);
-    if (!rec) {
-      const wrap = svgEl('g', { class: `nucleon-3d ${order[i]}` });
-      const body = svgEl('circle', { class: 'nucleon-body', cx: 0, cy: 0, r: 6.5 });
-      wrap.appendChild(body);
-      nucleusGroup.appendChild(wrap);
-      rec = {
-        kind: order[i], el: wrap,
-        fromPoint: randomFarPoint3D(),
-        toPoint: targetPoint,
-        animStart: now, duration: 700, depth: 0,
-      };
-      nucleus3DRecords.set(i, rec);
-    } else if (rec.toPoint.x !== targetPoint.x || rec.toPoint.y !== targetPoint.y || rec.toPoint.z !== targetPoint.z) {
-      rec.fromPoint = nucleon3DInterpPoint(rec, now);
-      rec.toPoint = targetPoint;
-      rec.animStart = now;
-      rec.duration = 500;
-    }
+  // New nucleons shoot in from a random point outside the nucleus with an inward kick, then
+  // jostle into place under the same forces as everyone else already in the liquid.
+  for (let i = 0; i < order.length; i++) {
+    if (nucleus3DRecords.has(i)) continue;
+    const wrap = svgEl('g', { class: `nucleon-3d ${order[i]}` });
+    const body = svgEl('circle', { class: 'nucleon-body', cx: 0, cy: 0, r: 6.5 });
+    wrap.appendChild(body);
+    nucleusGroup.appendChild(wrap);
+    const far = randomFarPoint3D();
+    const d = Math.max(1, Math.hypot(far.x, far.y, far.z));
+    const speed = 4.2;
+    nucleus3DRecords.set(i, {
+      kind: order[i], el: wrap, leaving: false, depth: 0,
+      pos: far,
+      vel: { x: -far.x / d * speed, y: -far.y / d * speed, z: -far.z / d * speed },
+    });
   }
 
   if (!nucleus3DFrameHandle) nucleus3DFrameHandle = requestAnimationFrame(step3DNucleus);
@@ -533,26 +492,72 @@ function render3DNucleus(order, nucleusRadius) {
 function step3DNucleus(now) {
   if (nucleusMode !== 'dots3d') { nucleus3DFrameHandle = null; return; }
 
+  const dt = Math.min(2, Math.max(0, now - nucleus3DLastTick) / 16.6667) || 1;
+  nucleus3DLastTick = now;
+  const damp = Math.pow(NUCLEUS_3D_DAMPING, dt);
+  const live = [...nucleus3DRecords.values()].filter((r) => !r.leaving);
+
+  // Short-range pairwise repulsion: what actually gives the cluster its packed, non-
+  // overlapping "liquid" feel, and (combined with the wall below) its size.
+  for (let a = 0; a < live.length; a++) {
+    const pa = live[a].pos;
+    for (let b = a + 1; b < live.length; b++) {
+      const pb = live[b].pos;
+      const dx = pb.x - pa.x, dy = pb.y - pa.y, dz = pb.z - pa.z;
+      const dist = Math.hypot(dx, dy, dz) || 0.001;
+      if (dist >= NUCLEON_SPACING) continue;
+      const push = (NUCLEON_SPACING - dist) / dist * NUCLEUS_3D_REPEL_K * dt;
+      const fx = dx * push, fy = dy * push, fz = dz * push;
+      live[a].vel.x -= fx; live[a].vel.y -= fy; live[a].vel.z -= fz;
+      live[b].vel.x += fx; live[b].vel.y += fy; live[b].vel.z += fz;
+    }
+  }
+
+  live.forEach((rec) => {
+    const p = rec.pos, v = rec.vel;
+    const r = Math.hypot(p.x, p.y, p.z) || 0.001;
+    // Soft wall at the nucleus's physical radius -- "gravity" holding the liquid together --
+    // plus a gentle constant pull toward the centre so the blob doesn't hollow out.
+    if (r > nucleus3DTargetRadius) {
+      const k = NUCLEUS_3D_WALL_K * (r - nucleus3DTargetRadius) * dt;
+      v.x -= (p.x / r) * k; v.y -= (p.y / r) * k; v.z -= (p.z / r) * k;
+    }
+    v.x -= p.x * NUCLEUS_3D_CENTER_K * dt; v.y -= p.y * NUCLEUS_3D_CENTER_K * dt; v.z -= p.z * NUCLEUS_3D_CENTER_K * dt;
+
+    v.x += (Math.random() - 0.5) * NUCLEUS_3D_JITTER * dt;
+    v.y += (Math.random() - 0.5) * NUCLEUS_3D_JITTER * dt;
+    v.z += (Math.random() - 0.5) * NUCLEUS_3D_JITTER * dt;
+
+    v.x *= damp; v.y *= damp; v.z *= damp;
+    p.x += v.x * dt; p.y += v.y * dt; p.z += v.z * dt;
+  });
+
+  // Leaving nucleons just coast outward on their exit velocity until their timer removes them.
+  nucleus3DRecords.forEach((rec) => {
+    if (!rec.leaving) return;
+    rec.pos.x += rec.vel.x * dt; rec.pos.y += rec.vel.y * dt; rec.pos.z += rec.vel.z * dt;
+  });
+
+  // Project: a slow camera-orbit rotation (viewing only -- not part of the liquid's own
+  // motion) gives the near/far depth cue.
   const angle = (now / NUCLEUS_3D_SPIN_MS) * Math.PI * 2;
   const cosA = Math.cos(angle), sinA = Math.sin(angle);
-  let maxR = 1;
-  nucleus3DRecords.forEach((rec) => { maxR = Math.max(maxR, Math.hypot(rec.toPoint.x, rec.toPoint.y, rec.toPoint.z)); });
+  const maxR = Math.max(nucleus3DTargetRadius, 1);
 
   nucleus3DRecords.forEach((rec) => {
-    const p = nucleon3DInterpPoint(rec, now);
+    const p = rec.pos;
     const rx = p.x * cosA + p.z * sinA;
     const rz = -p.x * sinA + p.z * cosA;
     const ry = p.y;
     const depthT = clamp01((rz + maxR) / (2 * maxR));
     const scale = lerp(0.8, 1.1, depthT);
-    const opacity = lerp(0.75, 1, depthT);
     rec.depth = rz;
     rec.el.style.transform = `translate(${(CENTER + rx).toFixed(2)}px, ${(CENTER + ry).toFixed(2)}px) scale(${scale.toFixed(2)})`;
-    rec.el.style.opacity = opacity.toFixed(2);
+    if (!rec.leaving) rec.el.style.opacity = lerp(0.75, 1, depthT).toFixed(2);
   });
 
   nucleus3DSortCounter++;
-  if (nucleus3DSortCounter % 9 === 0) {
+  if (nucleus3DSortCounter % 6 === 0) {
     const sorted = [...nucleus3DRecords.values()].sort((a, b) => a.depth - b.depth);
     sorted.forEach((rec) => nucleusGroup.appendChild(rec.el));
   }
