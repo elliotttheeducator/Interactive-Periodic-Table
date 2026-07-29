@@ -218,7 +218,7 @@ function svgEl(tag, attrs = {}) {
 
 function ensureSkeleton() {
   if (atomGroup) return;
-  atomGroup = svgEl('g', { class: 'atom-scale' });
+  atomGroup = svgEl('g', { class: 'atom-group' });
   nucleusGroup = svgEl('g', { class: 'nucleus-group' });
   atomGroup.appendChild(nucleusGroup);
   bohrSvg.appendChild(atomGroup);
@@ -715,7 +715,7 @@ function step3DNucleus(now) {
   nucleus3DFrameHandle = requestAnimationFrame(step3DNucleus);
 }
 
-function renderShells(shells, nucleusRadius) {
+function renderShells(shells, nucleusRadius, radiusScale) {
   const rows = Math.max(shells.length, shellStates.length);
   for (let i = 0; i < rows; i++) {
     const count = shells[i] || 0;
@@ -731,7 +731,10 @@ function renderShells(shells, nucleusRadius) {
       continue;
     }
 
-    const radius = nucleusRadius + RING_GAP * (i + 1.6);
+    // Only how far out the shell sits scales with atomicRadiusScale (the real periodic
+    // trend); the nucleus's own size and every particle's rendered size stay constant --
+    // a proton is a proton, however big the atom's electron cloud happens to be.
+    const radius = nucleusRadius + RING_GAP * (i + 1.6) * radiusScale;
 
     if (!existing) {
       const ringEl = svgEl('circle', { class: 'shell-ring', cx: CENTER, cy: CENTER, r: 0, 'data-shell': i + 1 });
@@ -770,9 +773,7 @@ function renderBohr(z) {
   const neutrons = parseMassNumber(e.mass) - protons;
 
   const nucleusRadius = renderNucleus(protons, neutrons);
-  renderShells(shells, nucleusRadius);
-
-  atomGroup.style.transform = `scale(${atomicRadiusScale(z)})`;
+  renderShells(shells, nucleusRadius, atomicRadiusScale(z));
 }
 
 // ---------- Subshell panel ----------
@@ -847,11 +848,13 @@ function spawnComicBursts(prevZ, nextZ) {
   const nextTotal = next.z + nextNeutrons;
   const scale = atomicRadiusScale(nextZ);
   const rawNucleusRadius = NUCLEUS_K * Math.cbrt(Math.max(nextTotal, 1));
-  const rawOuterRadius = rawNucleusRadius + RING_GAP * (Math.max(nextShells.length, prevShells.length) + 1.6);
+  // Only the shell-gap term scales with atomicRadiusScale, matching renderShells -- the
+  // nucleus itself doesn't resize with the electron cloud's trend.
+  const rawOuterRadius = rawNucleusRadius + RING_GAP * (Math.max(nextShells.length, prevShells.length) + 1.6) * scale;
   // Clamp so bursts stay on-screen for high-shell-count atoms instead of spawning
   // further and further above the visible diagram as more shells are added.
-  const nucleusRadius = Math.min(rawNucleusRadius * scale, 55);
-  const outerRadius = Math.min(rawOuterRadius * scale, 150);
+  const nucleusRadius = Math.min(rawNucleusRadius, 55);
+  const outerRadius = Math.min(rawOuterRadius, 150);
 
   // Spawn points sit clear of the nucleus/rings themselves (upper-left / lower-right of it)
   // so the burst text doesn't sit on top of the particles actually changing.
@@ -877,9 +880,10 @@ function atomOuterEdgePx(z) {
   const shells = shellConfig(z);
   const total = e.z + (parseMassNumber(e.mass) - e.z);
   const nucleusRadius = NUCLEUS_K * Math.cbrt(Math.max(total, 1));
-  const outerRadiusUnits = nucleusRadius + RING_GAP * (shells.length - 1 + 1.6);
+  // Only the shell-gap term scales with atomicRadiusScale, matching renderShells.
+  const outerRadiusUnits = nucleusRadius + RING_GAP * (shells.length - 1 + 1.6) * atomicRadiusScale(z);
   const pxPerUnit = svgRect.width / VIEW;
-  const outerRadiusPx = outerRadiusUnits * atomicRadiusScale(z) * pxPerUnit;
+  const outerRadiusPx = outerRadiusUnits * pxPerUnit;
   return {
     centerX: svgRect.left + svgRect.width / 2,
     centerY: svgRect.top + svgRect.height / 2,

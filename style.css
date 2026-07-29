@@ -90,11 +90,6 @@ body {
 }
 .app.table-expanded #bohr-svg { width: 21vh; height: 21vh; }
 
-.atom-scale {
-  transform-origin: 220px 220px;
-  transition: transform 700ms ease;
-}
-
 .shell-ring {
   fill: none;
   stroke: rgba(244,241,232,0.35);
